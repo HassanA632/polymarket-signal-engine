@@ -1,6 +1,6 @@
 use crate::polymarket::types::Event;
 
-pub fn display_events(events: &[Event]) {
+pub fn display_events(events: &[Event], max_display_markets: usize) {
     for (index, event) in events.iter().enumerate() {
         println!("{}. {}", index + 1, event.title);
         println!("   slug: {}", event.slug);
@@ -25,8 +25,17 @@ pub fn display_events(events: &[Event]) {
             println!("   liquidity: {:.2}", liquidity);
         }
 
-        for market in tradable_markets {
+        for market in tradable_markets.iter().take(max_display_markets) {
             display_market(market);
+        }
+
+        let hidden_count = tradable_markets.len().saturating_sub(max_display_markets);
+
+        if hidden_count > 0 {
+            println!(
+                "   ... {} more tradable markets not displayed",
+                hidden_count
+            );
         }
 
         println!();

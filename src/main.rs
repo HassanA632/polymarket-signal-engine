@@ -19,8 +19,12 @@ enum Commands {
     /// Fetch and display active Polymarket markets
     Markets {
         /// Number of active events to fetch
-        #[arg(short, long, default_value_t = 10)]
+        #[arg(short, long, default_value_t = 20)]
         limit: u32,
+
+        /// Maximum number of tradable markets to display per event
+        #[arg(long, default_value_t = 20)]
+        max_display_markets: usize,
     },
 }
 
@@ -31,13 +35,16 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Markets { limit } => {
+        Commands::Markets {
+            limit,
+            max_display_markets,
+        } => {
             tracing::info!(limit, "Fetching active Polymarket events");
 
             let client = PolymarketClient::new();
             let events = client.fetch_active_events(limit).await?;
 
-            display_events(&events);
+            display_events(&events, max_display_markets);
         }
     }
 
