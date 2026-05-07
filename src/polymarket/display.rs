@@ -45,13 +45,16 @@ fn display_market(market: &crate::polymarket::types::Market) {
         println!("     condition id: {}", condition_id);
     }
 
-    let clob_token_ids = market.parsed_clob_token_ids();
+    let outcome_tokens = market.outcome_tokens();
 
-    if !clob_token_ids.is_empty() {
-        println!("     CLOB token ids:");
+    if !outcome_tokens.is_empty() {
+        println!("     outcome tokens:");
 
-        for (index, token_id) in clob_token_ids.iter().enumerate() {
-            println!("       {}. {}", index + 1, token_id);
+        for outcome_token in outcome_tokens {
+            println!(
+                "       {} -> {}",
+                outcome_token.outcome, outcome_token.token_id
+            );
         }
     }
 

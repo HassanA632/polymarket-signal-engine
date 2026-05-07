@@ -32,23 +32,46 @@ pub struct Market {
     pub clob_token_ids: Option<String>,
 
     #[serde(default)]
+    pub outcomes: Option<String>,
+
+    #[serde(default)]
     pub active: Option<bool>,
 
     #[serde(default)]
     pub closed: Option<bool>,
 }
 
+#[derive(Debug)]
+pub struct OutcomeToken {
+    pub outcome: String,
+    pub token_id: String,
+}
 impl Market {
     pub fn is_tradable(&self) -> bool {
         self.active == Some(true) && self.closed == Some(false)
     }
 
     pub fn parsed_clob_token_ids(&self) -> Vec<String> {
-        match &self.clob_token_ids {
-            Some(raw_token_ids) => {
-                serde_json::from_str::<Vec<String>>(raw_token_ids).unwrap_or_default()
-            }
-            None => Vec::new(),
-        }
+        parse_json_string_array(self.clob_token_ids.as_deref())
     }
+
+    pub fn parsed_outcomes(&self) -> Vec<String> {
+        parse_json_string_array(self.outcomes.as_deref())
+    }
+
+    pub fn outcome_tokens(&self) -> Vec<OutcomeToken> {
+        let outcomes = self.parsed_outcomes();
+        let token_ids = self.parsed_clob_token_ids();
+
+        outcomes
+            .into_iter()
+            .zip(token_ids)
+            .map(|(outcome, token_id)| OutcomeToken { outcome, token_id })
+            .collect()
+    }
+}
+
+fn parse_json_string_array(raw: Option<&str>) -> Vec<String> {
+    raw.and_then(|value| serde_json::from_str::<Vec<String>>(value).ok())
+        .unwrap_or_default()
 }
