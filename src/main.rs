@@ -49,6 +49,26 @@ async fn main() -> Result<()> {
                     println!("   liquidity: {:.2}", liquidity);
                 }
 
+                for market in &event.markets {
+                    println!(
+                        "   - {}",
+                        market.question.as_deref().unwrap_or("Unknown question")
+                    );
+                    println!("     market id: {}", market.id);
+
+                    if let Some(condition_id) = &market.condition_id {
+                        println!("     condition id: {}", condition_id);
+                    }
+
+                    if let Some(active) = market.active {
+                        println!("     active: {}", active);
+                    }
+
+                    if let Some(closed) = market.closed {
+                        println!("     closed: {}", closed);
+                    }
+                }
+
                 println!();
             }
         }
