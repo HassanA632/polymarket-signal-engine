@@ -4,7 +4,18 @@ pub fn display_events(events: &[Event]) {
     for (index, event) in events.iter().enumerate() {
         println!("{}. {}", index + 1, event.title);
         println!("   slug: {}", event.slug);
-        println!("   markets: {}", event.markets.len());
+
+        let tradable_markets: Vec<_> = event
+            .markets
+            .iter()
+            .filter(|market| market.is_tradable())
+            .collect();
+
+        println!(
+            "   tradable markets: {}/{}",
+            tradable_markets.len(),
+            event.markets.len()
+        );
 
         if let Some(volume) = event.volume {
             println!("   volume: {:.2}", volume);
@@ -14,7 +25,7 @@ pub fn display_events(events: &[Event]) {
             println!("   liquidity: {:.2}", liquidity);
         }
 
-        for market in &event.markets {
+        for market in tradable_markets {
             display_market(market);
         }
 

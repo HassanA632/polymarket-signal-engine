@@ -33,3 +33,9 @@ pub struct Market {
     #[serde(default)]
     pub closed: Option<bool>,
 }
+
+impl Market {
+    pub fn is_tradable(&self) -> bool {
+        self.active == Some(true) && self.closed == Some(false)
+    }
+}
