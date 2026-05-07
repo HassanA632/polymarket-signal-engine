@@ -27,6 +27,10 @@ pub struct Market {
     #[serde(default)]
     pub condition_id: Option<String>,
 
+    #[serde(rename = "clobTokenIds")]
+    #[serde(default)]
+    pub clob_token_ids: Option<String>,
+
     #[serde(default)]
     pub active: Option<bool>,
 
@@ -37,5 +41,14 @@ pub struct Market {
 impl Market {
     pub fn is_tradable(&self) -> bool {
         self.active == Some(true) && self.closed == Some(false)
+    }
+
+    pub fn parsed_clob_token_ids(&self) -> Vec<String> {
+        match &self.clob_token_ids {
+            Some(raw_token_ids) => {
+                serde_json::from_str::<Vec<String>>(raw_token_ids).unwrap_or_default()
+            }
+            None => Vec::new(),
+        }
     }
 }
