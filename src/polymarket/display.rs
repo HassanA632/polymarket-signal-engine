@@ -1,11 +1,11 @@
+use crate::polymarket::filter::event_matches_search;
 use crate::polymarket::types::{Event, Market};
 
 pub fn display_events(events: &[Event], max_display_markets: usize, search: Option<&str>) {
-    let search = search.map(|value| value.to_lowercase());
     let mut displayed_events = 0;
 
     for event in events {
-        if let Some(search_term) = &search {
+        if let Some(search_term) = search {
             if !event_matches_search(event, search_term) {
                 continue;
             }
@@ -55,19 +55,6 @@ pub fn display_events(events: &[Event], max_display_markets: usize, search: Opti
     if displayed_events == 0 {
         println!("No matching events found.");
     }
-}
-
-fn event_matches_search(event: &Event, search_term: &str) -> bool {
-    event.title.to_lowercase().contains(search_term)
-        || event.slug.to_lowercase().contains(search_term)
-        || event.markets.iter().any(|market| {
-            market
-                .question
-                .as_deref()
-                .unwrap_or_default()
-                .to_lowercase()
-                .contains(search_term)
-        })
 }
 
 fn display_market(market: &Market) {
