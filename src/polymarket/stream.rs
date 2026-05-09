@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use std::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+use crate::polymarket::metrics::LatencyMetrics;
 use crate::polymarket::state::TokenMarketState;
 use crate::polymarket::ws_types::{
     BestBidAsk, LastTradePrice, OrderBookSnapshot, PriceChange, TickSizeChange,
@@ -33,6 +34,7 @@ pub async fn stream_token(token_id: &str) -> Result<()> {
     println!();
 
     let mut state = TokenMarketState::new(token_id);
+    let mut metrics = LatencyMetrics::default();
 
     while let Some(message) = read.next().await {
         match message? {
@@ -43,7 +45,15 @@ pub async fn stream_token(token_id: &str) -> Result<()> {
 
                 if handled_message {
                     let processing_latency = started_at.elapsed();
+
                     println!("processing_latency={:?}", processing_latency);
+
+                    metrics.record(processing_latency);
+
+                    if metrics.should_report(10) {
+                        metrics.display_summary();
+                    }
+
                     println!();
                 }
             }
