@@ -1,6 +1,7 @@
 use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
+use std::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::polymarket::state::TokenMarketState;
@@ -36,7 +37,15 @@ pub async fn stream_token(token_id: &str) -> Result<()> {
     while let Some(message) = read.next().await {
         match message? {
             Message::Text(text) => {
-                handle_market_message(&text, &mut state);
+                let started_at = Instant::now();
+
+                let handled_message = handle_market_message(&text, &mut state);
+
+                if handled_message {
+                    let processing_latency = started_at.elapsed();
+                    println!("processing_latency={:?}", processing_latency);
+                    println!();
+                }
             }
             Message::Ping(payload) => {
                 tracing::debug!("Received ping");
@@ -55,39 +64,45 @@ pub async fn stream_token(token_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn handle_market_message(raw_message: &str, state: &mut TokenMarketState) {
+fn handle_market_message(raw_message: &str, state: &mut TokenMarketState) -> bool {
     let value = match serde_json::from_str::<Value>(raw_message) {
         Ok(value) => value,
         Err(error) => {
             tracing::warn!(%error, raw_message, "Failed to parse WebSocket JSON");
-            return;
+            return false;
         }
     };
 
     match value {
         Value::Array(messages) => {
+            let mut handled_any = false;
+
             for message in messages {
-                handle_market_message_value(message, state);
+                if handle_market_message_value(message, state) {
+                    handled_any = true;
+                }
             }
+
+            handled_any
         }
-        Value::Object(_) => {
-            handle_market_message_value(value, state);
-        }
+        Value::Object(_) => handle_market_message_value(value, state),
         Value::String(message) => {
             tracing::debug!(message, "Received WebSocket text control message");
+            false
         }
         other => {
             tracing::debug!(?other, "Ignoring unsupported WebSocket payload");
+            false
         }
     }
 }
 
-fn handle_market_message_value(value: Value, state: &mut TokenMarketState) {
+fn handle_market_message_value(value: Value, state: &mut TokenMarketState) -> bool {
     let event_type = match value.get("event_type").and_then(Value::as_str) {
         Some(event_type) => event_type,
         None => {
             tracing::debug!(?value, "Ignoring WebSocket message without event_type");
-            return;
+            return false;
         }
     };
 
@@ -105,9 +120,11 @@ fn handle_market_message_value(value: Value, state: &mut TokenMarketState) {
                 );
 
                 state.display_summary();
+                true
             }
             Err(error) => {
                 tracing::warn!(%error, "Failed to parse book message");
+                false
             }
         },
         "price_change" => match serde_json::from_value::<PriceChange>(value) {
@@ -134,9 +151,11 @@ fn handle_market_message_value(value: Value, state: &mut TokenMarketState) {
                 }
 
                 state.display_summary();
+                true
             }
             Err(error) => {
                 tracing::warn!(%error, "Failed to parse price_change message");
+                false
             }
         },
         "last_trade_price" => match serde_json::from_value::<LastTradePrice>(value) {
@@ -149,9 +168,11 @@ fn handle_market_message_value(value: Value, state: &mut TokenMarketState) {
                 );
 
                 state.display_summary();
+                true
             }
             Err(error) => {
                 tracing::warn!(%error, "Failed to parse last_trade_price message");
+                false
             }
         },
         "best_bid_ask" => match serde_json::from_value::<BestBidAsk>(value) {
@@ -168,9 +189,11 @@ fn handle_market_message_value(value: Value, state: &mut TokenMarketState) {
                 );
 
                 state.display_summary();
+                true
             }
             Err(error) => {
                 tracing::warn!(%error, "Failed to parse best_bid_ask message");
+                false
             }
         },
         "tick_size_change" => match serde_json::from_value::<TickSizeChange>(value) {
@@ -182,13 +205,16 @@ fn handle_market_message_value(value: Value, state: &mut TokenMarketState) {
                     tick_size_change.new_tick_size,
                     tick_size_change.timestamp
                 );
+                true
             }
             Err(error) => {
                 tracing::warn!(%error, "Failed to parse tick_size_change message");
+                false
             }
         },
         other => {
             tracing::debug!(event_type = other, "Ignoring unsupported market event");
+            false
         }
     }
 }
