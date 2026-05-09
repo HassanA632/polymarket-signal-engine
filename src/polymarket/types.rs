@@ -75,3 +75,93 @@ fn parse_json_string_array(raw: Option<&str>) -> Vec<String> {
     raw.and_then(|value| serde_json::from_str::<Vec<String>>(value).ok())
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_market() -> Market {
+        Market {
+            id: "123".to_string(),
+            question: Some("Will Bitcoin hit $100k?".to_string()),
+            condition_id: Some("condition-1".to_string()),
+            clob_token_ids: Some("[\"yes-token\", \"no-token\"]".to_string()),
+            outcomes: Some("[\"Yes\", \"No\"]".to_string()),
+            active: Some(true),
+            closed: Some(false),
+        }
+    }
+
+    #[test]
+    fn market_is_tradable_when_active_and_not_closed() {
+        let market = test_market();
+
+        assert!(market.is_tradable());
+    }
+
+    #[test]
+    fn market_is_not_tradable_when_inactive() {
+        let mut market = test_market();
+        market.active = Some(false);
+
+        assert!(!market.is_tradable());
+    }
+
+    #[test]
+    fn market_is_not_tradable_when_closed() {
+        let mut market = test_market();
+        market.closed = Some(true);
+
+        assert!(!market.is_tradable());
+    }
+
+    #[test]
+    fn parses_clob_token_ids() {
+        let market = test_market();
+
+        assert_eq!(
+            market.parsed_clob_token_ids(),
+            vec!["yes-token".to_string(), "no-token".to_string()]
+        );
+    }
+
+    #[test]
+    fn parses_outcomes() {
+        let market = test_market();
+
+        assert_eq!(
+            market.parsed_outcomes(),
+            vec!["Yes".to_string(), "No".to_string()]
+        );
+    }
+
+    #[test]
+    fn pairs_outcomes_with_token_ids() {
+        let market = test_market();
+        let outcome_tokens = market.outcome_tokens();
+
+        assert_eq!(outcome_tokens.len(), 2);
+
+        assert_eq!(outcome_tokens[0].outcome, "Yes");
+        assert_eq!(outcome_tokens[0].token_id, "yes-token");
+
+        assert_eq!(outcome_tokens[1].outcome, "No");
+        assert_eq!(outcome_tokens[1].token_id, "no-token");
+    }
+
+    #[test]
+    fn invalid_token_json_returns_empty_vec() {
+        let mut market = test_market();
+        market.clob_token_ids = Some("not-valid-json".to_string());
+
+        assert!(market.parsed_clob_token_ids().is_empty());
+    }
+
+    #[test]
+    fn missing_outcomes_returns_empty_vec() {
+        let mut market = test_market();
+        market.outcomes = None;
+
+        assert!(market.parsed_outcomes().is_empty());
+    }
+}
