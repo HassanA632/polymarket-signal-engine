@@ -3,6 +3,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+use crate::polymarket::state::TokenMarketState;
 use crate::polymarket::ws_types::{
     BestBidAsk, LastTradePrice, OrderBookSnapshot, PriceChange, TickSizeChange,
 };
@@ -30,10 +31,12 @@ pub async fn stream_token(token_id: &str) -> Result<()> {
     println!("Waiting for live market messages...");
     println!();
 
+    let mut state = TokenMarketState::new(token_id);
+
     while let Some(message) = read.next().await {
         match message? {
             Message::Text(text) => {
-                handle_market_message(&text);
+                handle_market_message(&text, &mut state);
             }
             Message::Ping(payload) => {
                 tracing::debug!("Received ping");
@@ -52,7 +55,7 @@ pub async fn stream_token(token_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn handle_market_message(raw_message: &str) {
+fn handle_market_message(raw_message: &str, state: &mut TokenMarketState) {
     let value = match serde_json::from_str::<Value>(raw_message) {
         Ok(value) => value,
         Err(error) => {
@@ -64,11 +67,11 @@ fn handle_market_message(raw_message: &str) {
     match value {
         Value::Array(messages) => {
             for message in messages {
-                handle_market_message_value(message);
+                handle_market_message_value(message, state);
             }
         }
         Value::Object(_) => {
-            handle_market_message_value(value);
+            handle_market_message_value(value, state);
         }
         Value::String(message) => {
             tracing::debug!(message, "Received WebSocket text control message");
@@ -79,7 +82,7 @@ fn handle_market_message(raw_message: &str) {
     }
 }
 
-fn handle_market_message_value(value: Value) {
+fn handle_market_message_value(value: Value, state: &mut TokenMarketState) {
     let event_type = match value.get("event_type").and_then(Value::as_str) {
         Some(event_type) => event_type,
         None => {
@@ -91,6 +94,8 @@ fn handle_market_message_value(value: Value) {
     match event_type {
         "book" => match serde_json::from_value::<OrderBookSnapshot>(value) {
             Ok(book) => {
+                state.apply_book_snapshot(&book);
+
                 println!(
                     "BOOK asset={} bids={} asks={} timestamp={}",
                     book.asset_id,
@@ -98,6 +103,8 @@ fn handle_market_message_value(value: Value) {
                     book.asks.len(),
                     book.timestamp
                 );
+
+                state.display_summary();
             }
             Err(error) => {
                 tracing::warn!(%error, "Failed to parse book message");
@@ -105,6 +112,8 @@ fn handle_market_message_value(value: Value) {
         },
         "price_change" => match serde_json::from_value::<PriceChange>(value) {
             Ok(price_change) => {
+                state.apply_price_change(&price_change);
+
                 println!(
                     "PRICE_CHANGE market={} changes={} timestamp={}",
                     price_change.market,
@@ -123,6 +132,8 @@ fn handle_market_message_value(value: Value) {
                         change.best_ask
                     );
                 }
+
+                state.display_summary();
             }
             Err(error) => {
                 tracing::warn!(%error, "Failed to parse price_change message");
@@ -130,10 +141,14 @@ fn handle_market_message_value(value: Value) {
         },
         "last_trade_price" => match serde_json::from_value::<LastTradePrice>(value) {
             Ok(trade) => {
+                state.apply_last_trade_price(&trade);
+
                 println!(
                     "LAST_TRADE asset={} side={} price={} size={} timestamp={}",
                     trade.asset_id, trade.side, trade.price, trade.size, trade.timestamp
                 );
+
+                state.display_summary();
             }
             Err(error) => {
                 tracing::warn!(%error, "Failed to parse last_trade_price message");
@@ -141,6 +156,8 @@ fn handle_market_message_value(value: Value) {
         },
         "best_bid_ask" => match serde_json::from_value::<BestBidAsk>(value) {
             Ok(best_bid_ask) => {
+                state.apply_best_bid_ask(&best_bid_ask);
+
                 println!(
                     "BEST_BID_ASK asset={} bid={} ask={} spread={} timestamp={}",
                     best_bid_ask.asset_id,
@@ -149,6 +166,8 @@ fn handle_market_message_value(value: Value) {
                     best_bid_ask.spread,
                     best_bid_ask.timestamp
                 );
+
+                state.display_summary();
             }
             Err(error) => {
                 tracing::warn!(%error, "Failed to parse best_bid_ask message");
