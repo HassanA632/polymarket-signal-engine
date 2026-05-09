@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use crate::polymarket::client::PolymarketClient;
-use crate::polymarket::display::display_events;
+use crate::polymarket::display::{display_events, display_market_inspection};
 
 mod polymarket;
 
@@ -30,6 +30,17 @@ enum Commands {
         #[arg(short, long)]
         search: Option<String>,
     },
+
+    /// Inspect a specific market by market ID
+    Inspect {
+        /// Polymarket market ID to inspect
+        #[arg(long)]
+        market_id: String,
+
+        /// Number of active events to search through
+        #[arg(short, long, default_value_t = 100)]
+        limit: u32,
+    },
 }
 
 #[tokio::main]
@@ -50,6 +61,15 @@ async fn main() -> Result<()> {
             let events = client.fetch_active_events(limit).await?;
 
             display_events(&events, max_display_markets, search.as_deref());
+        }
+
+        Commands::Inspect { market_id, limit } => {
+            tracing::info!(market_id, limit, "Inspecting Polymarket market");
+
+            let client = PolymarketClient::new();
+            let events = client.fetch_active_events(limit).await?;
+
+            display_market_inspection(&events, &market_id);
         }
     }
 

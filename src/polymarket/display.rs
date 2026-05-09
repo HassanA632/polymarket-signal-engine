@@ -103,3 +103,31 @@ fn display_market(market: &Market) {
         println!("     closed: {}", closed);
     }
 }
+
+pub fn display_market_inspection(events: &[Event], market_id: &str) {
+    for event in events {
+        if let Some(market) = event.markets.iter().find(|market| market.id == market_id) {
+            println!("Market Inspection");
+            println!("=================");
+            println!("event: {}", event.title);
+            println!("event slug: {}", event.slug);
+
+            if let Some(volume) = event.volume {
+                println!("event volume: {:.2}", volume);
+            }
+
+            if let Some(liquidity) = event.liquidity {
+                println!("event liquidity: {:.2}", liquidity);
+            }
+
+            println!();
+            display_market(market);
+
+            return;
+        }
+    }
+
+    println!("No market found with id: {}", market_id);
+    println!("Try increasing the search limit, for example:");
+    println!("cargo run -- inspect --market-id {} --limit 500", market_id);
+}
