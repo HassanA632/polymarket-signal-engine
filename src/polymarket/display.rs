@@ -104,7 +104,7 @@ fn display_market(market: &Market) {
     }
 }
 
-pub fn display_market_inspection(events: &[Event], market_id: &str) {
+pub fn display_market_inspection_by_market_id(events: &[Event], market_id: &str) {
     for event in events {
         if let Some(market) = event.markets.iter().find(|market| market.id == market_id) {
             println!("Market Inspection");
@@ -130,4 +130,43 @@ pub fn display_market_inspection(events: &[Event], market_id: &str) {
     println!("No market found with id: {}", market_id);
     println!("Try increasing the search limit, for example:");
     println!("cargo run -- inspect --market-id {} --limit 500", market_id);
+}
+
+pub fn display_market_inspection_by_token_id(events: &[Event], token_id: &str) {
+    for event in events {
+        for market in &event.markets {
+            let matching_outcome_token = market
+                .outcome_tokens()
+                .into_iter()
+                .find(|outcome_token| outcome_token.token_id == token_id);
+
+            if let Some(outcome_token) = matching_outcome_token {
+                println!("Token Inspection");
+                println!("================");
+                println!("matched outcome: {}", outcome_token.outcome);
+                println!("matched token id: {}", outcome_token.token_id);
+                println!();
+
+                println!("event: {}", event.title);
+                println!("event slug: {}", event.slug);
+
+                if let Some(volume) = event.volume {
+                    println!("event volume: {:.2}", volume);
+                }
+
+                if let Some(liquidity) = event.liquidity {
+                    println!("event liquidity: {:.2}", liquidity);
+                }
+
+                println!();
+                display_market(market);
+
+                return;
+            }
+        }
+    }
+
+    println!("No market found with CLOB token id: {}", token_id);
+    println!("Try increasing the search limit, for example:");
+    println!("cargo run -- inspect --token-id {} --limit 500", token_id);
 }

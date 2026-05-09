@@ -2,7 +2,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use crate::polymarket::client::PolymarketClient;
-use crate::polymarket::display::{display_events, display_market_inspection};
+use crate::polymarket::display::{
+    display_events, display_market_inspection_by_market_id, display_market_inspection_by_token_id,
+};
 
 mod polymarket;
 
@@ -35,7 +37,11 @@ enum Commands {
     Inspect {
         /// Polymarket market ID to inspect
         #[arg(long)]
-        market_id: String,
+        market_id: Option<String>,
+
+        /// CLOB token ID to inspect
+        #[arg(long)]
+        token_id: Option<String>,
 
         /// Number of active events to search through
         #[arg(short, long, default_value_t = 100)]
@@ -63,13 +69,35 @@ async fn main() -> Result<()> {
             display_events(&events, max_display_markets, search.as_deref());
         }
 
-        Commands::Inspect { market_id, limit } => {
-            tracing::info!(market_id, limit, "Inspecting Polymarket market");
+        Commands::Inspect {
+            market_id,
+            token_id,
+            limit,
+        } => {
+            tracing::info!(
+                market_id = ?market_id,
+                token_id = ?token_id,
+                limit,
+                "Inspecting Polymarket market"
+            );
 
             let client = PolymarketClient::new();
             let events = client.fetch_active_events(limit).await?;
 
-            display_market_inspection(&events, &market_id);
+            match (market_id.as_deref(), token_id.as_deref()) {
+                (Some(market_id), None) => {
+                    display_market_inspection_by_market_id(&events, market_id);
+                }
+                (None, Some(token_id)) => {
+                    display_market_inspection_by_token_id(&events, token_id);
+                }
+                (None, None) => {
+                    eprintln!("Please provide either --market-id or --token-id.");
+                }
+                (Some(_), Some(_)) => {
+                    eprintln!("Please provide only one of --market-id or --token-id, not both.");
+                }
+            }
         }
     }
 
