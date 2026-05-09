@@ -5,6 +5,7 @@ use crate::polymarket::client::PolymarketClient;
 use crate::polymarket::display::{
     display_events, display_market_inspection_by_market_id, display_market_inspection_by_token_id,
 };
+use crate::polymarket::stream::stream_token;
 
 mod polymarket;
 
@@ -46,6 +47,12 @@ enum Commands {
         /// Number of active events to search through
         #[arg(short, long, default_value_t = 100)]
         limit: u32,
+    },
+    /// Stream live market data for a CLOB token ID
+    Stream {
+        /// CLOB token ID to stream
+        #[arg(long)]
+        token_id: String,
     },
 }
 
@@ -98,6 +105,9 @@ async fn main() -> Result<()> {
                     eprintln!("Please provide only one of --market-id or --token-id, not both.");
                 }
             }
+        }
+        Commands::Stream { token_id } => {
+            stream_token(&token_id).await?;
         }
     }
 
