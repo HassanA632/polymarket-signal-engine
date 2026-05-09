@@ -3,3 +3,4 @@ pub mod display;
 pub mod filter;
 pub mod stream;
 pub mod types;
+pub mod ws_types;
