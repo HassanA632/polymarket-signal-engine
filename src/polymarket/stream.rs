@@ -5,6 +5,7 @@ use std::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::polymarket::metrics::LatencyMetrics;
+use crate::polymarket::signals::{display_signal, evaluate_signals};
 use crate::polymarket::state::TokenMarketState;
 use crate::polymarket::ws_types::{
     BestBidAsk, LastTradePrice, OrderBookSnapshot, PriceChange, TickSizeChange,
@@ -44,6 +45,10 @@ pub async fn stream_token(token_id: &str) -> Result<()> {
                 let handled_message = handle_market_message(&text, &mut state);
 
                 if handled_message {
+                    for signal in evaluate_signals(&state) {
+                        display_signal(&signal);
+                    }
+
                     let processing_latency = started_at.elapsed();
 
                     println!("processing_latency={:?}", processing_latency);
