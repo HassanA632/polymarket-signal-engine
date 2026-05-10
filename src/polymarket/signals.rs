@@ -1,5 +1,18 @@
 use crate::polymarket::state::TokenMarketState;
 
+#[derive(Debug, Clone)]
+pub struct SignalConfig {
+    pub tight_spread_threshold: f64,
+}
+
+impl Default for SignalConfig {
+    fn default() -> Self {
+        Self {
+            tight_spread_threshold: 0.01,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum MarketSignal {
     TightSpread {
@@ -10,10 +23,10 @@ pub enum MarketSignal {
     },
 }
 
-pub fn evaluate_signals(state: &TokenMarketState) -> Vec<MarketSignal> {
+pub fn evaluate_signals(state: &TokenMarketState, config: &SignalConfig) -> Vec<MarketSignal> {
     let mut signals = Vec::new();
 
-    if let Some(signal) = evaluate_tight_spread(state, 0.01) {
+    if let Some(signal) = evaluate_tight_spread(state, config.tight_spread_threshold) {
         signals.push(signal);
     }
 
@@ -91,7 +104,8 @@ mod tests {
     fn emits_tight_spread_signal_when_spread_is_below_threshold() {
         let state = state_with_spread("0.005");
 
-        let signals = evaluate_signals(&state);
+        let config = SignalConfig::default();
+        let signals = evaluate_signals(&state, &config);
 
         assert_eq!(signals.len(), 1);
 
@@ -110,7 +124,8 @@ mod tests {
     fn emits_tight_spread_signal_when_spread_equals_threshold() {
         let state = state_with_spread("0.01");
 
-        let signals = evaluate_signals(&state);
+        let config = SignalConfig::default();
+        let signals = evaluate_signals(&state, &config);
 
         assert_eq!(signals.len(), 1);
     }
@@ -119,7 +134,8 @@ mod tests {
     fn does_not_emit_tight_spread_signal_when_spread_is_above_threshold() {
         let state = state_with_spread("0.02");
 
-        let signals = evaluate_signals(&state);
+        let config = SignalConfig::default();
+        let signals = evaluate_signals(&state, &config);
 
         assert!(signals.is_empty());
     }
@@ -129,7 +145,8 @@ mod tests {
         let mut state = state_with_spread("0.005");
         state.best_bid = None;
 
-        let signals = evaluate_signals(&state);
+        let config = SignalConfig::default();
+        let signals = evaluate_signals(&state, &config);
 
         assert!(signals.is_empty());
     }
@@ -138,8 +155,22 @@ mod tests {
     fn does_not_emit_signal_when_spread_is_invalid() {
         let state = state_with_spread("not-a-number");
 
-        let signals = evaluate_signals(&state);
+        let config = SignalConfig::default();
+        let signals = evaluate_signals(&state, &config);
 
         assert!(signals.is_empty());
+    }
+
+    #[test]
+    fn uses_configured_tight_spread_threshold() {
+        let state = state_with_spread("0.02");
+
+        let config = SignalConfig {
+            tight_spread_threshold: 0.03,
+        };
+
+        let signals = evaluate_signals(&state, &config);
+
+        assert_eq!(signals.len(), 1);
     }
 }

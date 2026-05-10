@@ -5,6 +5,7 @@ use crate::polymarket::client::PolymarketClient;
 use crate::polymarket::display::{
     display_events, display_market_inspection_by_market_id, display_market_inspection_by_token_id,
 };
+use crate::polymarket::signals::SignalConfig;
 use crate::polymarket::stream::stream_token;
 
 mod polymarket;
@@ -53,6 +54,10 @@ enum Commands {
         /// CLOB token ID to stream
         #[arg(long)]
         token_id: String,
+
+        /// Maximum spread allowed for a TightSpread signal
+        #[arg(long, default_value_t = 0.01)]
+        tight_spread_threshold: f64,
     },
 }
 
@@ -106,8 +111,15 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Stream { token_id } => {
-            stream_token(&token_id).await?;
+        Commands::Stream {
+            token_id,
+            tight_spread_threshold,
+        } => {
+            let signal_config = SignalConfig {
+                tight_spread_threshold,
+            };
+
+            stream_token(&token_id, signal_config).await?;
         }
     }
 

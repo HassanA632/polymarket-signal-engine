@@ -5,7 +5,7 @@ use std::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::polymarket::metrics::LatencyMetrics;
-use crate::polymarket::signals::{display_signal, evaluate_signals};
+use crate::polymarket::signals::{SignalConfig, display_signal, evaluate_signals};
 use crate::polymarket::state::TokenMarketState;
 use crate::polymarket::ws_types::{
     BestBidAsk, LastTradePrice, OrderBookSnapshot, PriceChange, TickSizeChange,
@@ -13,7 +13,11 @@ use crate::polymarket::ws_types::{
 
 const POLYMARKET_MARKET_WS_URL: &str = "wss://ws-subscriptions-clob.polymarket.com/ws/market";
 
-pub async fn stream_token(token_id: &str) -> Result<()> {
+pub async fn stream_token(token_id: &str, signal_config: SignalConfig) -> Result<()> {
+    println!(
+        "Signal config: tight_spread_threshold={}",
+        signal_config.tight_spread_threshold
+    );
     tracing::info!(token_id, "Connecting to Polymarket market WebSocket");
 
     let (ws_stream, _) = connect_async(POLYMARKET_MARKET_WS_URL).await?;
@@ -45,7 +49,7 @@ pub async fn stream_token(token_id: &str) -> Result<()> {
                 let handled_message = handle_market_message(&text, &mut state);
 
                 if handled_message {
-                    for signal in evaluate_signals(&state) {
+                    for signal in evaluate_signals(&state, &signal_config) {
                         display_signal(&signal);
                     }
 
