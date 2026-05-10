@@ -62,6 +62,10 @@ enum Commands {
         /// Minimum spread reduction required for a SpreadTightened signal
         #[arg(long, default_value_t = 0.01)]
         min_spread_tightening: f64,
+
+        /// Minimum best-bid movement required for a price movement signal
+        #[arg(long, default_value_t = 0.02)]
+        min_price_move: f64,
     },
 }
 
@@ -119,10 +123,12 @@ async fn main() -> Result<()> {
             token_id,
             tight_spread_threshold,
             min_spread_tightening,
+            min_price_move,
         } => {
             let signal_config = SignalConfig {
                 tight_spread_threshold,
                 min_spread_tightening,
+                min_price_move,
             };
 
             stream_token(&token_id, signal_config).await?;
