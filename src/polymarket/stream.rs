@@ -15,8 +15,8 @@ const POLYMARKET_MARKET_WS_URL: &str = "wss://ws-subscriptions-clob.polymarket.c
 
 pub async fn stream_token(token_id: &str, signal_config: SignalConfig) -> Result<()> {
     println!(
-        "Signal config: tight_spread_threshold={}",
-        signal_config.tight_spread_threshold
+        "Signal config: tight_spread_threshold={} min_spread_tightening={}",
+        signal_config.tight_spread_threshold, signal_config.min_spread_tightening
     );
     tracing::info!(token_id, "Connecting to Polymarket market WebSocket");
 
@@ -46,10 +46,11 @@ pub async fn stream_token(token_id: &str, signal_config: SignalConfig) -> Result
             Message::Text(text) => {
                 let started_at = Instant::now();
 
+                let previous_state = state.clone();
                 let handled_message = handle_market_message(&text, &mut state);
 
                 if handled_message {
-                    for signal in evaluate_signals(&state, &signal_config) {
+                    for signal in evaluate_signals(Some(&previous_state), &state, &signal_config) {
                         display_signal(&signal);
                     }
 

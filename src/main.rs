@@ -58,6 +58,10 @@ enum Commands {
         /// Maximum spread allowed for a TightSpread signal
         #[arg(long, default_value_t = 0.01)]
         tight_spread_threshold: f64,
+
+        /// Minimum spread reduction required for a SpreadTightened signal
+        #[arg(long, default_value_t = 0.01)]
+        min_spread_tightening: f64,
     },
 }
 
@@ -114,9 +118,11 @@ async fn main() -> Result<()> {
         Commands::Stream {
             token_id,
             tight_spread_threshold,
+            min_spread_tightening,
         } => {
             let signal_config = SignalConfig {
                 tight_spread_threshold,
+                min_spread_tightening,
             };
 
             stream_token(&token_id, signal_config).await?;

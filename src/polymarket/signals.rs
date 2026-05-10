@@ -3,12 +3,14 @@ use crate::polymarket::state::TokenMarketState;
 #[derive(Debug, Clone)]
 pub struct SignalConfig {
     pub tight_spread_threshold: f64,
+    pub min_spread_tightening: f64,
 }
 
 impl Default for SignalConfig {
     fn default() -> Self {
         Self {
             tight_spread_threshold: 0.01,
+            min_spread_tightening: 0.01,
         }
     }
 }
@@ -21,13 +23,30 @@ pub enum MarketSignal {
         best_ask: String,
         spread: String,
     },
+    SpreadTightened {
+        token_id: String,
+        previous_spread: String,
+        current_spread: String,
+    },
 }
 
-pub fn evaluate_signals(state: &TokenMarketState, config: &SignalConfig) -> Vec<MarketSignal> {
+pub fn evaluate_signals(
+    previous_state: Option<&TokenMarketState>,
+    current_state: &TokenMarketState,
+    config: &SignalConfig,
+) -> Vec<MarketSignal> {
     let mut signals = Vec::new();
 
-    if let Some(signal) = evaluate_tight_spread(state, config.tight_spread_threshold) {
+    if let Some(signal) = evaluate_tight_spread(current_state, config.tight_spread_threshold) {
         signals.push(signal);
+    }
+
+    if let Some(previous_state) = previous_state {
+        if let Some(signal) =
+            evaluate_spread_tightened(previous_state, current_state, config.min_spread_tightening)
+        {
+            signals.push(signal);
+        }
     }
 
     signals
@@ -52,6 +71,30 @@ fn evaluate_tight_spread(state: &TokenMarketState, max_spread: f64) -> Option<Ma
     None
 }
 
+fn evaluate_spread_tightened(
+    previous_state: &TokenMarketState,
+    current_state: &TokenMarketState,
+    min_tightening: f64,
+) -> Option<MarketSignal> {
+    let previous_spread = previous_state.spread.as_ref()?;
+    let current_spread = current_state.spread.as_ref()?;
+
+    let previous_spread_value = previous_spread.parse::<f64>().ok()?;
+    let current_spread_value = current_spread.parse::<f64>().ok()?;
+
+    let tightening = previous_spread_value - current_spread_value;
+
+    if tightening >= min_tightening {
+        return Some(MarketSignal::SpreadTightened {
+            token_id: current_state.token_id.clone(),
+            previous_spread: previous_spread.clone(),
+            current_spread: current_spread.clone(),
+        });
+    }
+
+    None
+}
+
 pub fn display_signal(signal: &MarketSignal) {
     match signal {
         MarketSignal::TightSpread {
@@ -66,6 +109,18 @@ pub fn display_signal(signal: &MarketSignal) {
                 best_bid,
                 best_ask,
                 spread
+            );
+        }
+        MarketSignal::SpreadTightened {
+            token_id,
+            previous_spread,
+            current_spread,
+        } => {
+            println!(
+                "SIGNAL SpreadTightened token={} from={} to={}",
+                shorten_token_id(token_id),
+                previous_spread,
+                current_spread
             );
         }
     }
@@ -105,8 +160,7 @@ mod tests {
         let state = state_with_spread("0.005");
 
         let config = SignalConfig::default();
-        let signals = evaluate_signals(&state, &config);
-
+        let signals = evaluate_signals(None, &state, &config);
         assert_eq!(signals.len(), 1);
 
         assert_eq!(
@@ -125,8 +179,7 @@ mod tests {
         let state = state_with_spread("0.01");
 
         let config = SignalConfig::default();
-        let signals = evaluate_signals(&state, &config);
-
+        let signals = evaluate_signals(None, &state, &config);
         assert_eq!(signals.len(), 1);
     }
 
@@ -135,8 +188,7 @@ mod tests {
         let state = state_with_spread("0.02");
 
         let config = SignalConfig::default();
-        let signals = evaluate_signals(&state, &config);
-
+        let signals = evaluate_signals(None, &state, &config);
         assert!(signals.is_empty());
     }
 
@@ -146,8 +198,7 @@ mod tests {
         state.best_bid = None;
 
         let config = SignalConfig::default();
-        let signals = evaluate_signals(&state, &config);
-
+        let signals = evaluate_signals(None, &state, &config);
         assert!(signals.is_empty());
     }
 
@@ -156,8 +207,7 @@ mod tests {
         let state = state_with_spread("not-a-number");
 
         let config = SignalConfig::default();
-        let signals = evaluate_signals(&state, &config);
-
+        let signals = evaluate_signals(None, &state, &config);
         assert!(signals.is_empty());
     }
 
@@ -167,10 +217,60 @@ mod tests {
 
         let config = SignalConfig {
             tight_spread_threshold: 0.03,
+            ..SignalConfig::default()
         };
 
-        let signals = evaluate_signals(&state, &config);
-
+        let signals = evaluate_signals(None, &state, &config);
         assert_eq!(signals.len(), 1);
+    }
+
+    #[test]
+    fn emits_spread_tightened_signal_when_spread_reduces_enough() {
+        let previous_state = state_with_spread("0.04");
+        let current_state = state_with_spread("0.02");
+
+        let config = SignalConfig {
+            tight_spread_threshold: 0.01,
+            min_spread_tightening: 0.01,
+        };
+
+        let signals = evaluate_signals(Some(&previous_state), &current_state, &config);
+
+        assert_eq!(
+            signals,
+            vec![MarketSignal::SpreadTightened {
+                token_id: "token-1".to_string(),
+                previous_spread: "0.04".to_string(),
+                current_spread: "0.02".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn does_not_emit_spread_tightened_signal_when_reduction_is_too_small() {
+        let previous_state = state_with_spread("0.04");
+        let current_state = state_with_spread("0.035");
+
+        let config = SignalConfig {
+            tight_spread_threshold: 0.01,
+            min_spread_tightening: 0.01,
+        };
+
+        let signals = evaluate_signals(Some(&previous_state), &current_state, &config);
+
+        assert!(signals.is_empty());
+    }
+
+    #[test]
+    fn does_not_emit_spread_tightened_signal_without_previous_state() {
+        let current_state = state_with_spread("0.02");
+        let config = SignalConfig {
+            tight_spread_threshold: 0.01,
+            min_spread_tightening: 0.01,
+        };
+
+        let signals = evaluate_signals(None, &current_state, &config);
+
+        assert!(signals.is_empty());
     }
 }
