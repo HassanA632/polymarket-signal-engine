@@ -6,12 +6,14 @@ pub struct LatencyMetrics {
     total_latency: Duration,
     min_latency: Option<Duration>,
     max_latency: Option<Duration>,
+    latencies: Vec<Duration>,
 }
 
 impl LatencyMetrics {
     pub fn record(&mut self, latency: Duration) {
         self.message_count += 1;
         self.total_latency += latency;
+        self.latencies.push(latency);
 
         self.min_latency = Some(match self.min_latency {
             Some(current_min) => current_min.min(latency),
@@ -36,11 +38,14 @@ impl LatencyMetrics {
         let avg_latency = self.average_latency();
 
         println!(
-            "METRICS messages={} avg={} min={} max={}",
+            "METRICS messages={} avg={} min={} max={} p50={} p95={} p99={}",
             self.message_count,
             format_duration(avg_latency),
             format_duration(self.min_latency.unwrap_or_default()),
             format_duration(self.max_latency.unwrap_or_default()),
+            format_duration(self.percentile(50.0)),
+            format_duration(self.percentile(95.0)),
+            format_duration(self.percentile(99.0)),
         );
     }
 
@@ -50,6 +55,20 @@ impl LatencyMetrics {
         }
 
         Duration::from_nanos((self.total_latency.as_nanos() / self.message_count as u128) as u64)
+    }
+
+    fn percentile(&self, percentile: f64) -> Duration {
+        if self.latencies.is_empty() {
+            return Duration::ZERO;
+        }
+
+        let mut sorted_latencies = self.latencies.clone();
+        sorted_latencies.sort();
+
+        let rank = (percentile / 100.0) * (sorted_latencies.len().saturating_sub(1) as f64);
+        let index = rank.ceil() as usize;
+
+        sorted_latencies[index]
     }
 }
 
@@ -112,5 +131,45 @@ mod tests {
         metrics.record(Duration::from_micros(300));
 
         assert_eq!(metrics.average_latency(), Duration::from_micros(200));
+    }
+
+    #[test]
+    fn calculates_p50_latency() {
+        let mut metrics = LatencyMetrics::default();
+
+        metrics.record(Duration::from_micros(100));
+        metrics.record(Duration::from_micros(200));
+        metrics.record(Duration::from_micros(300));
+
+        assert_eq!(metrics.percentile(50.0), Duration::from_micros(200));
+    }
+
+    #[test]
+    fn calculates_p95_latency() {
+        let mut metrics = LatencyMetrics::default();
+
+        for value in 1..=100 {
+            metrics.record(Duration::from_micros(value));
+        }
+
+        assert_eq!(metrics.percentile(95.0), Duration::from_micros(96));
+    }
+
+    #[test]
+    fn calculates_p99_latency() {
+        let mut metrics = LatencyMetrics::default();
+
+        for value in 1..=100 {
+            metrics.record(Duration::from_micros(value));
+        }
+
+        assert_eq!(metrics.percentile(99.0), Duration::from_micros(100));
+    }
+
+    #[test]
+    fn percentile_returns_zero_when_empty() {
+        let metrics = LatencyMetrics::default();
+
+        assert_eq!(metrics.percentile(95.0), Duration::ZERO);
     }
 }
