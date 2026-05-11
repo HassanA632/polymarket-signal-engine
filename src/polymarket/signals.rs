@@ -5,6 +5,7 @@ pub struct SignalConfig {
     pub tight_spread_threshold: f64,
     pub min_spread_tightening: f64,
     pub min_price_move: f64,
+    pub large_trade_threshold: f64,
 }
 
 impl Default for SignalConfig {
@@ -13,6 +14,7 @@ impl Default for SignalConfig {
             tight_spread_threshold: 0.01,
             min_spread_tightening: 0.01,
             min_price_move: 0.02,
+            large_trade_threshold: 500.0,
         }
     }
 }
@@ -42,6 +44,12 @@ pub enum MarketSignal {
         current_bid: String,
         change: String,
     },
+    LargeTrade {
+        token_id: String,
+        side: String,
+        price: String,
+        size: String,
+    },
 }
 
 pub fn evaluate_signals(
@@ -64,6 +72,12 @@ pub fn evaluate_signals(
 
         if let Some(signal) =
             evaluate_price_move(previous_state, current_state, config.min_price_move)
+        {
+            signals.push(signal);
+        }
+
+        if let Some(signal) =
+            evaluate_large_trade(previous_state, current_state, config.large_trade_threshold)
         {
             signals.push(signal);
         }
@@ -149,6 +163,37 @@ fn evaluate_price_move(
     None
 }
 
+fn evaluate_large_trade(
+    previous_state: &TokenMarketState,
+    current_state: &TokenMarketState,
+    large_trade_threshold: f64,
+) -> Option<MarketSignal> {
+    let current_price = current_state.last_trade_price.as_ref()?;
+    let current_size = current_state.last_trade_size.as_ref()?;
+    let current_side = current_state.last_trade_side.as_ref()?;
+
+    let trade_changed = previous_state.last_trade_price != current_state.last_trade_price
+        || previous_state.last_trade_size != current_state.last_trade_size
+        || previous_state.last_trade_side != current_state.last_trade_side;
+
+    if !trade_changed {
+        return None;
+    }
+
+    let size_value = current_size.parse::<f64>().ok()?;
+
+    if size_value >= large_trade_threshold {
+        return Some(MarketSignal::LargeTrade {
+            token_id: current_state.token_id.clone(),
+            side: current_side.clone(),
+            price: current_price.clone(),
+            size: current_size.clone(),
+        });
+    }
+
+    None
+}
+
 pub fn display_signal(signal: &MarketSignal) {
     match signal {
         MarketSignal::TightSpread {
@@ -203,6 +248,20 @@ pub fn display_signal(signal: &MarketSignal) {
                 previous_bid,
                 current_bid,
                 change
+            );
+        }
+        MarketSignal::LargeTrade {
+            token_id,
+            side,
+            price,
+            size,
+        } => {
+            println!(
+                "SIGNAL LargeTrade token={} side={} price={} size={}",
+                shorten_token_id(token_id),
+                side,
+                price,
+                size
             );
         }
     }
@@ -367,6 +426,7 @@ mod tests {
             tight_spread_threshold: 0.01,
             min_spread_tightening: 0.01,
             min_price_move: 0.02,
+            ..SignalConfig::default()
         };
 
         let signals = evaluate_signals(Some(&previous_state), &current_state, &config);
@@ -394,6 +454,7 @@ mod tests {
             tight_spread_threshold: 0.01,
             min_spread_tightening: 0.01,
             min_price_move: 0.02,
+            ..SignalConfig::default()
         };
 
         let signals = evaluate_signals(Some(&previous_state), &current_state, &config);
@@ -421,6 +482,7 @@ mod tests {
             tight_spread_threshold: 0.01,
             min_spread_tightening: 0.01,
             min_price_move: 0.02,
+            ..SignalConfig::default()
         };
 
         let signals = evaluate_signals(Some(&previous_state), &current_state, &config);
@@ -437,6 +499,93 @@ mod tests {
         current_state.best_bid = Some("0.43".to_string());
 
         let config = SignalConfig::default();
+
+        let signals = evaluate_signals(Some(&previous_state), &current_state, &config);
+
+        assert!(signals.is_empty());
+    }
+
+    #[test]
+    fn emits_large_trade_signal_when_new_trade_size_meets_threshold() {
+        let previous_state = state_with_spread("0.02");
+
+        let mut current_state = state_with_spread("0.02");
+        current_state.last_trade_price = Some("0.43".to_string());
+        current_state.last_trade_size = Some("750".to_string());
+        current_state.last_trade_side = Some("BUY".to_string());
+
+        let config = SignalConfig {
+            large_trade_threshold: 500.0,
+            ..SignalConfig::default()
+        };
+
+        let signals = evaluate_signals(Some(&previous_state), &current_state, &config);
+
+        assert_eq!(
+            signals,
+            vec![MarketSignal::LargeTrade {
+                token_id: "token-1".to_string(),
+                side: "BUY".to_string(),
+                price: "0.43".to_string(),
+                size: "750".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn does_not_emit_large_trade_signal_when_trade_size_is_below_threshold() {
+        let previous_state = state_with_spread("0.02");
+
+        let mut current_state = state_with_spread("0.02");
+        current_state.last_trade_price = Some("0.43".to_string());
+        current_state.last_trade_size = Some("250".to_string());
+        current_state.last_trade_side = Some("BUY".to_string());
+
+        let config = SignalConfig {
+            large_trade_threshold: 500.0,
+            ..SignalConfig::default()
+        };
+
+        let signals = evaluate_signals(Some(&previous_state), &current_state, &config);
+
+        assert!(signals.is_empty());
+    }
+
+    #[test]
+    fn does_not_repeat_large_trade_signal_when_trade_has_not_changed() {
+        let mut previous_state = state_with_spread("0.02");
+        previous_state.last_trade_price = Some("0.43".to_string());
+        previous_state.last_trade_size = Some("750".to_string());
+        previous_state.last_trade_side = Some("BUY".to_string());
+
+        let mut current_state = state_with_spread("0.02");
+        current_state.last_trade_price = Some("0.43".to_string());
+        current_state.last_trade_size = Some("750".to_string());
+        current_state.last_trade_side = Some("BUY".to_string());
+
+        let config = SignalConfig {
+            large_trade_threshold: 500.0,
+            ..SignalConfig::default()
+        };
+
+        let signals = evaluate_signals(Some(&previous_state), &current_state, &config);
+
+        assert!(signals.is_empty());
+    }
+
+    #[test]
+    fn does_not_emit_large_trade_signal_when_trade_size_is_invalid() {
+        let previous_state = state_with_spread("0.02");
+
+        let mut current_state = state_with_spread("0.02");
+        current_state.last_trade_price = Some("0.43".to_string());
+        current_state.last_trade_size = Some("not-a-number".to_string());
+        current_state.last_trade_side = Some("BUY".to_string());
+
+        let config = SignalConfig {
+            large_trade_threshold: 500.0,
+            ..SignalConfig::default()
+        };
 
         let signals = evaluate_signals(Some(&previous_state), &current_state, &config);
 

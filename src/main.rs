@@ -66,6 +66,9 @@ enum Commands {
         /// Minimum best-bid movement required for a price movement signal
         #[arg(long, default_value_t = 0.02)]
         min_price_move: f64,
+        /// Minimum trade size required for a LargeTrade signal
+        #[arg(long, default_value_t = 500.0)]
+        large_trade_threshold: f64,
     },
 }
 
@@ -124,11 +127,13 @@ async fn main() -> Result<()> {
             tight_spread_threshold,
             min_spread_tightening,
             min_price_move,
+            large_trade_threshold,
         } => {
             let signal_config = SignalConfig {
                 tight_spread_threshold,
                 min_spread_tightening,
                 min_price_move,
+                large_trade_threshold,
             };
 
             stream_token(&token_id, signal_config).await?;
