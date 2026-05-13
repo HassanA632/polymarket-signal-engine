@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use crate::polymarket::signals::MarketSignal;
+
 #[derive(Debug, Default)]
 pub struct LatencyMetrics {
     message_count: u64,
@@ -69,6 +71,43 @@ impl LatencyMetrics {
         let index = rank.ceil() as usize;
 
         sorted_latencies[index]
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SignalMetrics {
+    total: u64,
+    tight_spread: u64,
+    spread_tightened: u64,
+    price_move: u64,
+    large_trade: u64,
+}
+
+impl SignalMetrics {
+    pub fn record(&mut self, signal: &MarketSignal) {
+        self.total += 1;
+
+        match signal {
+            MarketSignal::TightSpread { .. } => {
+                self.tight_spread += 1;
+            }
+            MarketSignal::SpreadTightened { .. } => {
+                self.spread_tightened += 1;
+            }
+            MarketSignal::PriceMoveUp { .. } | MarketSignal::PriceMoveDown { .. } => {
+                self.price_move += 1;
+            }
+            MarketSignal::LargeTrade { .. } => {
+                self.large_trade += 1;
+            }
+        }
+    }
+
+    pub fn display_summary(&self) {
+        println!(
+            "SIGNAL_METRICS total={} tight_spread={} spread_tightened={} price_move={} large_trade={}",
+            self.total, self.tight_spread, self.spread_tightened, self.price_move, self.large_trade
+        );
     }
 }
 
@@ -171,5 +210,88 @@ mod tests {
         let metrics = LatencyMetrics::default();
 
         assert_eq!(metrics.percentile(95.0), Duration::ZERO);
+    }
+
+    #[test]
+    fn records_tight_spread_signal() {
+        let mut metrics = SignalMetrics::default();
+
+        let signal = MarketSignal::TightSpread {
+            token_id: "token-1".to_string(),
+            best_bid: "0.42".to_string(),
+            best_ask: "0.43".to_string(),
+            spread: "0.01".to_string(),
+        };
+
+        metrics.record(&signal);
+
+        assert_eq!(metrics.total, 1);
+        assert_eq!(metrics.tight_spread, 1);
+        assert_eq!(metrics.spread_tightened, 0);
+        assert_eq!(metrics.price_move, 0);
+        assert_eq!(metrics.large_trade, 0);
+    }
+
+    #[test]
+    fn combines_price_move_up_and_down() {
+        let mut metrics = SignalMetrics::default();
+
+        let up = MarketSignal::PriceMoveUp {
+            token_id: "token-1".to_string(),
+            previous_bid: "0.40".to_string(),
+            current_bid: "0.43".to_string(),
+            change: "0.0300".to_string(),
+        };
+
+        let down = MarketSignal::PriceMoveDown {
+            token_id: "token-1".to_string(),
+            previous_bid: "0.43".to_string(),
+            current_bid: "0.40".to_string(),
+            change: "-0.0300".to_string(),
+        };
+
+        metrics.record(&up);
+        metrics.record(&down);
+
+        assert_eq!(metrics.total, 2);
+        assert_eq!(metrics.price_move, 2);
+    }
+
+    #[test]
+    fn records_all_signal_categories() {
+        let mut metrics = SignalMetrics::default();
+
+        metrics.record(&MarketSignal::TightSpread {
+            token_id: "token-1".to_string(),
+            best_bid: "0.42".to_string(),
+            best_ask: "0.43".to_string(),
+            spread: "0.01".to_string(),
+        });
+
+        metrics.record(&MarketSignal::SpreadTightened {
+            token_id: "token-1".to_string(),
+            previous_spread: "0.04".to_string(),
+            current_spread: "0.02".to_string(),
+        });
+
+        metrics.record(&MarketSignal::PriceMoveUp {
+            token_id: "token-1".to_string(),
+            previous_bid: "0.40".to_string(),
+            current_bid: "0.43".to_string(),
+            change: "0.0300".to_string(),
+        });
+
+        metrics.record(&MarketSignal::LargeTrade {
+            token_id: "token-1".to_string(),
+            side: "BUY".to_string(),
+            price: "0.43".to_string(),
+            size: "750".to_string(),
+        });
+
+        assert_eq!(metrics.total, 4);
+        assert_eq!(metrics.tight_spread, 1);
+        assert_eq!(metrics.spread_tightened, 1);
+        assert_eq!(metrics.price_move, 1);
+        assert_eq!(metrics.large_trade, 1);
     }
 }

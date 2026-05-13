@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use crate::polymarket::metrics::LatencyMetrics;
+use crate::polymarket::metrics::{LatencyMetrics, SignalMetrics};
 use crate::polymarket::signal_logger::SignalLogger;
 use crate::polymarket::signals::{
     SignalConfig, SignalOutputMode, display_signal, evaluate_signals,
@@ -53,6 +53,7 @@ pub async fn stream_token(
 
     let mut state = TokenMarketState::new(token_id);
     let mut metrics = LatencyMetrics::default();
+    let mut signal_metrics = SignalMetrics::default();
 
     let mut signal_logger = match signal_log_path {
         Some(path) => {
@@ -73,6 +74,7 @@ pub async fn stream_token(
                 if handled_message {
                     for signal in evaluate_signals(Some(&previous_state), &state, &signal_config) {
                         display_signal(&signal, signal_output_mode);
+                        signal_metrics.record(&signal);
 
                         if let Some(logger) = signal_logger.as_mut() {
                             logger.log(&signal)?;
@@ -87,6 +89,7 @@ pub async fn stream_token(
 
                     if metrics.should_report(10) {
                         metrics.display_summary();
+                        signal_metrics.display_summary();
                     }
 
                     println!();
