@@ -1,4 +1,12 @@
+use serde::Serialize;
+
 use crate::polymarket::state::TokenMarketState;
+
+#[derive(Debug, Clone, Copy)]
+pub enum SignalOutputMode {
+    Text,
+    Json,
+}
 
 #[derive(Debug, Clone)]
 pub struct SignalConfig {
@@ -19,7 +27,8 @@ impl Default for SignalConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type")]
 pub enum MarketSignal {
     TightSpread {
         token_id: String,
@@ -194,7 +203,21 @@ fn evaluate_large_trade(
     None
 }
 
-pub fn display_signal(signal: &MarketSignal) {
+pub fn display_signal(signal: &MarketSignal, output_mode: SignalOutputMode) {
+    match output_mode {
+        SignalOutputMode::Text => display_signal_text(signal),
+        SignalOutputMode::Json => display_signal_json(signal),
+    }
+}
+
+fn display_signal_json(signal: &MarketSignal) {
+    match serde_json::to_string(signal) {
+        Ok(json) => println!("{}", json),
+        Err(error) => tracing::warn!(%error, "Failed to serialize signal"),
+    }
+}
+
+fn display_signal_text(signal: &MarketSignal) {
     match signal {
         MarketSignal::TightSpread {
             token_id,

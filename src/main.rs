@@ -5,7 +5,7 @@ use crate::polymarket::client::PolymarketClient;
 use crate::polymarket::display::{
     display_events, display_market_inspection_by_market_id, display_market_inspection_by_token_id,
 };
-use crate::polymarket::signals::SignalConfig;
+use crate::polymarket::signals::{SignalConfig, SignalOutputMode};
 use crate::polymarket::stream::stream_token;
 
 mod polymarket;
@@ -66,10 +66,30 @@ enum Commands {
         /// Minimum best-bid movement required for a price movement signal
         #[arg(long, default_value_t = 0.02)]
         min_price_move: f64,
+
         /// Minimum trade size required for a LargeTrade signal
         #[arg(long, default_value_t = 500.0)]
         large_trade_threshold: f64,
+
+        /// Signal output format
+        #[arg(long, value_enum, default_value_t = OutputMode::Text)]
+        output: OutputMode,
     },
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum OutputMode {
+    Text,
+    Json,
+}
+
+impl From<OutputMode> for SignalOutputMode {
+    fn from(value: OutputMode) -> Self {
+        match value {
+            OutputMode::Text => SignalOutputMode::Text,
+            OutputMode::Json => SignalOutputMode::Json,
+        }
+    }
 }
 
 #[tokio::main]
@@ -128,6 +148,7 @@ async fn main() -> Result<()> {
             min_spread_tightening,
             min_price_move,
             large_trade_threshold,
+            output,
         } => {
             let signal_config = SignalConfig {
                 tight_spread_threshold,
@@ -136,7 +157,7 @@ async fn main() -> Result<()> {
                 large_trade_threshold,
             };
 
-            stream_token(&token_id, signal_config).await?;
+            stream_token(&token_id, signal_config, output.into()).await?;
         }
     }
 

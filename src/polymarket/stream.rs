@@ -5,7 +5,9 @@ use std::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::polymarket::metrics::LatencyMetrics;
-use crate::polymarket::signals::{SignalConfig, display_signal, evaluate_signals};
+use crate::polymarket::signals::{
+    SignalConfig, SignalOutputMode, display_signal, evaluate_signals,
+};
 use crate::polymarket::state::TokenMarketState;
 use crate::polymarket::ws_types::{
     BestBidAsk, LastTradePrice, OrderBookSnapshot, PriceChange, TickSizeChange,
@@ -13,7 +15,11 @@ use crate::polymarket::ws_types::{
 
 const POLYMARKET_MARKET_WS_URL: &str = "wss://ws-subscriptions-clob.polymarket.com/ws/market";
 
-pub async fn stream_token(token_id: &str, signal_config: SignalConfig) -> Result<()> {
+pub async fn stream_token(
+    token_id: &str,
+    signal_config: SignalConfig,
+    signal_output_mode: SignalOutputMode,
+) -> Result<()> {
     println!(
         "Signal config: tight_spread_threshold={} min_spread_tightening={} min_price_move={} large_trade_threshold={}",
         signal_config.tight_spread_threshold,
@@ -21,6 +27,7 @@ pub async fn stream_token(token_id: &str, signal_config: SignalConfig) -> Result
         signal_config.min_price_move,
         signal_config.large_trade_threshold
     );
+    println!("Signal output mode: {:?}", signal_output_mode);
     tracing::info!(token_id, "Connecting to Polymarket market WebSocket");
 
     let (ws_stream, _) = connect_async(POLYMARKET_MARKET_WS_URL).await?;
@@ -54,7 +61,7 @@ pub async fn stream_token(token_id: &str, signal_config: SignalConfig) -> Result
 
                 if handled_message {
                     for signal in evaluate_signals(Some(&previous_state), &state, &signal_config) {
-                        display_signal(&signal);
+                        display_signal(&signal, signal_output_mode);
                     }
 
                     let processing_latency = started_at.elapsed();
