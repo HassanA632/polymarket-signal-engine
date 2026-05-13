@@ -7,7 +7,7 @@ use crate::polymarket::display::{
     display_events, display_market_inspection_by_market_id, display_market_inspection_by_token_id,
 };
 use crate::polymarket::signals::{SignalConfig, SignalOutputMode};
-use crate::polymarket::stream::stream_token;
+use crate::polymarket::stream::{StreamOutputConfig, stream_token};
 
 mod polymarket;
 
@@ -79,6 +79,14 @@ enum Commands {
         /// Optional path to write emitted signals as JSONL
         #[arg(long)]
         log_signals: Option<PathBuf>,
+
+        /// Show live token state summaries
+        #[arg(long, default_value_t = false)]
+        show_state: bool,
+
+        /// Show parsed WebSocket event summaries
+        #[arg(long, default_value_t = false)]
+        show_events: bool,
     },
 }
 
@@ -155,6 +163,8 @@ async fn main() -> Result<()> {
             large_trade_threshold,
             output,
             log_signals,
+            show_state,
+            show_events,
         } => {
             let signal_config = SignalConfig {
                 tight_spread_threshold,
@@ -163,7 +173,19 @@ async fn main() -> Result<()> {
                 large_trade_threshold,
             };
 
-            stream_token(&token_id, signal_config, output.into(), log_signals).await?;
+            let output_config = StreamOutputConfig {
+                show_state,
+                show_events,
+            };
+
+            stream_token(
+                &token_id,
+                signal_config,
+                output.into(),
+                log_signals,
+                output_config,
+            )
+            .await?;
         }
     }
 

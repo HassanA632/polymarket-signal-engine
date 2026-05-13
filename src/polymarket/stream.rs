@@ -17,11 +17,18 @@ use crate::polymarket::ws_types::{
 
 const POLYMARKET_MARKET_WS_URL: &str = "wss://ws-subscriptions-clob.polymarket.com/ws/market";
 
+#[derive(Debug, Clone, Copy)]
+pub struct StreamOutputConfig {
+    pub show_state: bool,
+    pub show_events: bool,
+}
+
 pub async fn stream_token(
     token_id: &str,
     signal_config: SignalConfig,
     signal_output_mode: SignalOutputMode,
     signal_log_path: Option<PathBuf>,
+    output_config: StreamOutputConfig,
 ) -> Result<()> {
     println!(
         "Signal config: tight_spread_threshold={} min_spread_tightening={} min_price_move={} large_trade_threshold={}",
@@ -31,6 +38,10 @@ pub async fn stream_token(
         signal_config.large_trade_threshold
     );
     println!("Signal output mode: {:?}", signal_output_mode);
+    println!(
+        "Stream output: show_state={} show_events={}",
+        output_config.show_state, output_config.show_events
+    );
     tracing::info!(token_id, "Connecting to Polymarket market WebSocket");
 
     let (ws_stream, _) = connect_async(POLYMARKET_MARKET_WS_URL).await?;
@@ -69,7 +80,7 @@ pub async fn stream_token(
                 let started_at = Instant::now();
 
                 let previous_state = state.clone();
-                let handled_message = handle_market_message(&text, &mut state);
+                let handled_message = handle_market_message(&text, &mut state, output_config);
 
                 if handled_message {
                     for signal in evaluate_signals(Some(&previous_state), &state, &signal_config) {
@@ -112,7 +123,11 @@ pub async fn stream_token(
     Ok(())
 }
 
-fn handle_market_message(raw_message: &str, state: &mut TokenMarketState) -> bool {
+fn handle_market_message(
+    raw_message: &str,
+    state: &mut TokenMarketState,
+    output_config: StreamOutputConfig,
+) -> bool {
     let value = match serde_json::from_str::<Value>(raw_message) {
         Ok(value) => value,
         Err(error) => {
@@ -126,14 +141,14 @@ fn handle_market_message(raw_message: &str, state: &mut TokenMarketState) -> boo
             let mut handled_any = false;
 
             for message in messages {
-                if handle_market_message_value(message, state) {
+                if handle_market_message_value(message, state, output_config) {
                     handled_any = true;
                 }
             }
 
             handled_any
         }
-        Value::Object(_) => handle_market_message_value(value, state),
+        Value::Object(_) => handle_market_message_value(value, state, output_config),
         Value::String(message) => {
             tracing::debug!(message, "Received WebSocket text control message");
             false
@@ -145,7 +160,11 @@ fn handle_market_message(raw_message: &str, state: &mut TokenMarketState) -> boo
     }
 }
 
-fn handle_market_message_value(value: Value, state: &mut TokenMarketState) -> bool {
+fn handle_market_message_value(
+    value: Value,
+    state: &mut TokenMarketState,
+    output_config: StreamOutputConfig,
+) -> bool {
     let event_type = match value.get("event_type").and_then(Value::as_str) {
         Some(event_type) => event_type,
         None => {
@@ -159,15 +178,20 @@ fn handle_market_message_value(value: Value, state: &mut TokenMarketState) -> bo
             Ok(book) => {
                 state.apply_book_snapshot(&book);
 
-                println!(
-                    "BOOK asset={} bids={} asks={} timestamp={}",
-                    book.asset_id,
-                    book.bids.len(),
-                    book.asks.len(),
-                    book.timestamp
-                );
+                if output_config.show_events {
+                    println!(
+                        "BOOK asset={} bids={} asks={} timestamp={}",
+                        book.asset_id,
+                        book.bids.len(),
+                        book.asks.len(),
+                        book.timestamp
+                    );
+                }
 
-                state.display_summary();
+                if output_config.show_state {
+                    state.display_summary();
+                }
+
                 true
             }
             Err(error) => {
@@ -179,26 +203,31 @@ fn handle_market_message_value(value: Value, state: &mut TokenMarketState) -> bo
             Ok(price_change) => {
                 state.apply_price_change(&price_change);
 
-                println!(
-                    "PRICE_CHANGE market={} changes={} timestamp={}",
-                    price_change.market,
-                    price_change.changes.len(),
-                    price_change.timestamp
-                );
-
-                for change in price_change.changes {
+                if output_config.show_events {
                     println!(
-                        "  {} {} price={} size={} best_bid={:?} best_ask={:?}",
-                        change.asset_id,
-                        change.side,
-                        change.price,
-                        change.size,
-                        change.best_bid,
-                        change.best_ask
+                        "PRICE_CHANGE market={} changes={} timestamp={}",
+                        price_change.market,
+                        price_change.changes.len(),
+                        price_change.timestamp
                     );
+
+                    for change in price_change.changes {
+                        println!(
+                            "  {} {} price={} size={} best_bid={:?} best_ask={:?}",
+                            change.asset_id,
+                            change.side,
+                            change.price,
+                            change.size,
+                            change.best_bid,
+                            change.best_ask
+                        );
+                    }
                 }
 
-                state.display_summary();
+                if output_config.show_state {
+                    state.display_summary();
+                }
+
                 true
             }
             Err(error) => {
@@ -210,12 +239,17 @@ fn handle_market_message_value(value: Value, state: &mut TokenMarketState) -> bo
             Ok(trade) => {
                 state.apply_last_trade_price(&trade);
 
-                println!(
-                    "LAST_TRADE asset={} side={} price={} size={} timestamp={}",
-                    trade.asset_id, trade.side, trade.price, trade.size, trade.timestamp
-                );
+                if output_config.show_events {
+                    println!(
+                        "LAST_TRADE asset={} side={} price={} size={} timestamp={}",
+                        trade.asset_id, trade.side, trade.price, trade.size, trade.timestamp
+                    );
+                }
 
-                state.display_summary();
+                if output_config.show_state {
+                    state.display_summary();
+                }
+
                 true
             }
             Err(error) => {
@@ -227,16 +261,21 @@ fn handle_market_message_value(value: Value, state: &mut TokenMarketState) -> bo
             Ok(best_bid_ask) => {
                 state.apply_best_bid_ask(&best_bid_ask);
 
-                println!(
-                    "BEST_BID_ASK asset={} bid={} ask={} spread={} timestamp={}",
-                    best_bid_ask.asset_id,
-                    best_bid_ask.best_bid,
-                    best_bid_ask.best_ask,
-                    best_bid_ask.spread,
-                    best_bid_ask.timestamp
-                );
+                if output_config.show_events {
+                    println!(
+                        "BEST_BID_ASK asset={} bid={} ask={} spread={} timestamp={}",
+                        best_bid_ask.asset_id,
+                        best_bid_ask.best_bid,
+                        best_bid_ask.best_ask,
+                        best_bid_ask.spread,
+                        best_bid_ask.timestamp
+                    );
+                }
 
-                state.display_summary();
+                if output_config.show_state {
+                    state.display_summary();
+                }
+
                 true
             }
             Err(error) => {
@@ -246,13 +285,16 @@ fn handle_market_message_value(value: Value, state: &mut TokenMarketState) -> bo
         },
         "tick_size_change" => match serde_json::from_value::<TickSizeChange>(value) {
             Ok(tick_size_change) => {
-                println!(
-                    "TICK_SIZE_CHANGE asset={} old={} new={} timestamp={}",
-                    tick_size_change.asset_id,
-                    tick_size_change.old_tick_size,
-                    tick_size_change.new_tick_size,
-                    tick_size_change.timestamp
-                );
+                if output_config.show_events {
+                    println!(
+                        "TICK_SIZE_CHANGE asset={} old={} new={} timestamp={}",
+                        tick_size_change.asset_id,
+                        tick_size_change.old_tick_size,
+                        tick_size_change.new_tick_size,
+                        tick_size_change.timestamp
+                    );
+                }
+
                 true
             }
             Err(error) => {
