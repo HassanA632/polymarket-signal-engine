@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 use crate::polymarket::client::PolymarketClient;
 use crate::polymarket::display::{
@@ -74,6 +75,10 @@ enum Commands {
         /// Signal output format
         #[arg(long, value_enum, default_value_t = OutputMode::Text)]
         output: OutputMode,
+
+        /// Optional path to write emitted signals as JSONL
+        #[arg(long)]
+        log_signals: Option<PathBuf>,
     },
 }
 
@@ -149,6 +154,7 @@ async fn main() -> Result<()> {
             min_price_move,
             large_trade_threshold,
             output,
+            log_signals,
         } => {
             let signal_config = SignalConfig {
                 tight_spread_threshold,
@@ -157,7 +163,7 @@ async fn main() -> Result<()> {
                 large_trade_threshold,
             };
 
-            stream_token(&token_id, signal_config, output.into()).await?;
+            stream_token(&token_id, signal_config, output.into(), log_signals).await?;
         }
     }
 

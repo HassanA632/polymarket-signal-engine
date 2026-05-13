@@ -1,10 +1,12 @@
 use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::polymarket::metrics::LatencyMetrics;
+use crate::polymarket::signal_logger::SignalLogger;
 use crate::polymarket::signals::{
     SignalConfig, SignalOutputMode, display_signal, evaluate_signals,
 };
@@ -19,6 +21,7 @@ pub async fn stream_token(
     token_id: &str,
     signal_config: SignalConfig,
     signal_output_mode: SignalOutputMode,
+    signal_log_path: Option<PathBuf>,
 ) -> Result<()> {
     println!(
         "Signal config: tight_spread_threshold={} min_spread_tightening={} min_price_move={} large_trade_threshold={}",
@@ -51,6 +54,14 @@ pub async fn stream_token(
     let mut state = TokenMarketState::new(token_id);
     let mut metrics = LatencyMetrics::default();
 
+    let mut signal_logger = match signal_log_path {
+        Some(path) => {
+            println!("Signal logging enabled: {}", path.display());
+            Some(SignalLogger::new(path)?)
+        }
+        None => None,
+    };
+
     while let Some(message) = read.next().await {
         match message? {
             Message::Text(text) => {
@@ -62,6 +73,10 @@ pub async fn stream_token(
                 if handled_message {
                     for signal in evaluate_signals(Some(&previous_state), &state, &signal_config) {
                         display_signal(&signal, signal_output_mode);
+
+                        if let Some(logger) = signal_logger.as_mut() {
+                            logger.log(&signal)?;
+                        }
                     }
 
                     let processing_latency = started_at.elapsed();

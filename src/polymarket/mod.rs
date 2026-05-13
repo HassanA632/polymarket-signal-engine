@@ -2,6 +2,7 @@ pub mod client;
 pub mod display;
 pub mod filter;
 pub mod metrics;
+pub mod signal_logger;
 pub mod signals;
 pub mod state;
 pub mod stream;
