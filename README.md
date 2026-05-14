@@ -30,6 +30,31 @@ This project will include:
 - structured logging and observability
 - clean separation between data ingestion, state updates, and signal generation
 
+## Status
+
+This project is currently in active development.
+
+Implemented:
+
+- Basic CLI structure
+- Polymarket event fetching
+- Market search and display filtering
+- Market inspection by market ID
+- Market inspection by CLOB token ID
+- Live WebSocket market stream
+- Typed WebSocket message parsing
+- Live token market state tracking
+- Previous-state comparisons
+- Processing latency metrics
+- p50, p95, and p99 latency statistics
+- Signal engine
+- Configurable signal thresholds
+- Text and JSON signal output
+- Optional JSONL signal logging
+- Stream output controls
+- Signal metrics
+- Unit tests for core parsing, filtering, state, metrics, and signal logic
+
 ## Planned Features
 
 ### Market Discovery
@@ -64,10 +89,14 @@ This project will include:
 
 ### Paper Trading
 
-- Simulate entries and exits
-- Track profit and loss
-- Include simple slippage assumptions
-- Record strategy performance over time
+- Add experimental paper-trading mode
+- Open simulated positions from selected signal conditions
+- Track simulated entry price, position state, and strategy reason
+- Add configurable stake size
+- Add simple take-profit and stop-loss exits
+- Track realised and unrealised paper PnL
+- Print paper-trading session summaries
+- Optionally log paper trades as JSONL
 
 ## Architecture Direction
 
@@ -111,15 +140,17 @@ Slow operations such as database writes, verbose terminal output, and historical
 - Tokio
 - Reqwest
 - Serde
+- Serde JSON
 - Clap
 - Tracing
+- Tokio Tungstenite
+- Futures Util
 
 Planned additions:
 
-- WebSocket client
 - Criterion benchmarks
 - SQLx or SQLite/Postgres for historical storage
-- Metrics collection for latency tracking
+- More advanced metrics collection for latency tracking
 
 ## Running the Project
 
@@ -135,10 +166,68 @@ Fetch a limited number of events:
 cargo run -- markets --limit 5
 ```
 
-or:
+Limit how many tradable markets are displayed per event:
 
 ```bash
-cargo run -- markets -l 5
+cargo run -- markets --limit 5 --max-display-markets 3
+```
+
+Search fetched events and markets by keyword:
+
+```bash
+cargo run -- markets --search bitcoin --limit 100 --max-display-markets 5
+```
+
+Inspect a market by market ID:
+
+```bash
+cargo run -- inspect --market-id <MARKET_ID> --limit 100
+```
+
+Inspect a market by CLOB token ID:
+
+```bash
+cargo run -- inspect --token-id <CLOB_TOKEN_ID> --limit 100
+```
+
+Stream live market data for a CLOB token ID:
+
+```bash
+cargo run -- stream --token-id <CLOB_TOKEN_ID>
+```
+
+Stream with state summaries enabled:
+
+```bash
+cargo run -- stream --token-id <CLOB_TOKEN_ID> --show-state
+```
+
+Stream with parsed WebSocket event summaries enabled:
+
+```bash
+cargo run -- stream --token-id <CLOB_TOKEN_ID> --show-events
+```
+
+Use JSON signal output:
+
+```bash
+cargo run -- stream --token-id <CLOB_TOKEN_ID> --output json
+```
+
+Log emitted signals as JSONL:
+
+```bash
+cargo run -- stream --token-id <CLOB_TOKEN_ID> --output json --log-signals signals.jsonl
+```
+
+Tune signal thresholds:
+
+```bash
+cargo run -- stream --token-id <CLOB_TOKEN_ID> \
+  --tight-spread-threshold 0.02 \
+  --min-spread-tightening 0.005 \
+  --min-price-move 0.01 \
+  --large-trade-threshold 250
 ```
 
 ## Development Principles
