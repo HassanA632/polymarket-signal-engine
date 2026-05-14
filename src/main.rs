@@ -7,7 +7,7 @@ use crate::polymarket::display::{
     display_events, display_market_inspection_by_market_id, display_market_inspection_by_token_id,
 };
 use crate::polymarket::signals::{SignalConfig, SignalOutputMode};
-use crate::polymarket::stream::{StreamOutputConfig, stream_token};
+use crate::polymarket::stream::{PaperTradingConfig, StreamOutputConfig, stream_token};
 
 mod polymarket;
 
@@ -87,6 +87,14 @@ enum Commands {
         /// Show parsed WebSocket event summaries
         #[arg(long, default_value_t = false)]
         show_events: bool,
+
+        /// Enable experimental paper trading mode
+        #[arg(long, default_value_t = false)]
+        paper_trade: bool,
+
+        /// Stake size used for simulated paper trades
+        #[arg(long, default_value_t = 10.0)]
+        paper_stake: f64,
     },
 }
 
@@ -165,6 +173,8 @@ async fn main() -> Result<()> {
             log_signals,
             show_state,
             show_events,
+            paper_trade,
+            paper_stake,
         } => {
             let signal_config = SignalConfig {
                 tight_spread_threshold,
@@ -178,12 +188,18 @@ async fn main() -> Result<()> {
                 show_events,
             };
 
+            let paper_trading_config = PaperTradingConfig {
+                enabled: paper_trade,
+                stake: paper_stake,
+            };
+
             stream_token(
                 &token_id,
                 signal_config,
                 output.into(),
                 log_signals,
                 output_config,
+                paper_trading_config,
             )
             .await?;
         }

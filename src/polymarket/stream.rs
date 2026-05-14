@@ -6,9 +6,10 @@ use std::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::polymarket::metrics::{LatencyMetrics, SignalMetrics};
+use crate::polymarket::paper_trader::PaperTrader;
 use crate::polymarket::signal_logger::SignalLogger;
 use crate::polymarket::signals::{
-    SignalConfig, SignalOutputMode, display_signal, evaluate_signals,
+    MarketSignal, SignalConfig, SignalOutputMode, display_signal, evaluate_signals,
 };
 use crate::polymarket::state::TokenMarketState;
 use crate::polymarket::ws_types::{
@@ -23,12 +24,19 @@ pub struct StreamOutputConfig {
     pub show_events: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct PaperTradingConfig {
+    pub enabled: bool,
+    pub stake: f64,
+}
+
 pub async fn stream_token(
     token_id: &str,
     signal_config: SignalConfig,
     signal_output_mode: SignalOutputMode,
     signal_log_path: Option<PathBuf>,
     output_config: StreamOutputConfig,
+    paper_trading_config: PaperTradingConfig,
 ) -> Result<()> {
     println!(
         "Signal config: tight_spread_threshold={} min_spread_tightening={} min_price_move={} large_trade_threshold={}",
@@ -41,6 +49,10 @@ pub async fn stream_token(
     println!(
         "Stream output: show_state={} show_events={}",
         output_config.show_state, output_config.show_events
+    );
+    println!(
+        "Paper trading: enabled={} stake={}",
+        paper_trading_config.enabled, paper_trading_config.stake
     );
     tracing::info!(token_id, "Connecting to Polymarket market WebSocket");
 
@@ -65,6 +77,7 @@ pub async fn stream_token(
     let mut state = TokenMarketState::new(token_id);
     let mut metrics = LatencyMetrics::default();
     let mut signal_metrics = SignalMetrics::default();
+    let mut paper_trader = PaperTrader::new(paper_trading_config.stake);
 
     let mut signal_logger = match signal_log_path {
         Some(path) => {
@@ -86,6 +99,15 @@ pub async fn stream_token(
                     for signal in evaluate_signals(Some(&previous_state), &state, &signal_config) {
                         display_signal(&signal, signal_output_mode);
                         signal_metrics.record(&signal);
+
+                        if paper_trading_config.enabled {
+                            maybe_open_paper_position(
+                                &mut paper_trader,
+                                &state,
+                                &signal,
+                                &signal_config,
+                            );
+                        }
 
                         if let Some(logger) = signal_logger.as_mut() {
                             logger.log(&signal)?;
@@ -307,4 +329,69 @@ fn handle_market_message_value(
             false
         }
     }
+}
+
+fn maybe_open_paper_position(
+    paper_trader: &mut PaperTrader,
+    state: &TokenMarketState,
+    signal: &MarketSignal,
+    signal_config: &SignalConfig,
+) {
+    if !matches!(signal, MarketSignal::PriceMoveUp { .. }) {
+        return;
+    }
+
+    if paper_trader.has_open_position() {
+        return;
+    }
+
+    if !state_has_tight_spread(state, signal_config.tight_spread_threshold) {
+        return;
+    }
+
+    let Some(entry_price) = state.best_ask.as_deref().and_then(parse_price) else {
+        return;
+    };
+
+    let opened = paper_trader.open_long(
+        state.token_id.clone(),
+        entry_price,
+        "PriceMoveUp with tight spread",
+    );
+
+    if opened {
+        println!(
+            "PAPER_TRADE Opened side=LONG token={} entry={} stake={} reason=\"PriceMoveUp with tight spread\"",
+            shorten_token_id(&state.token_id),
+            entry_price,
+            paper_trader.stake
+        );
+    }
+}
+
+fn state_has_tight_spread(state: &TokenMarketState, threshold: f64) -> bool {
+    state
+        .spread
+        .as_deref()
+        .and_then(parse_price)
+        .is_some_and(|spread| spread <= threshold)
+}
+
+fn parse_price(value: &str) -> Option<f64> {
+    value.parse::<f64>().ok()
+}
+
+fn shorten_token_id(token_id: &str) -> String {
+    const PREFIX_LEN: usize = 8;
+    const SUFFIX_LEN: usize = 6;
+
+    if token_id.len() <= PREFIX_LEN + SUFFIX_LEN {
+        return token_id.to_string();
+    }
+
+    format!(
+        "{}...{}",
+        &token_id[..PREFIX_LEN],
+        &token_id[token_id.len() - SUFFIX_LEN..]
+    )
 }
