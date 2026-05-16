@@ -130,6 +130,35 @@ impl PaperTrader {
 
         Some(closed_trade)
     }
+
+    pub fn closed_trade_count(&self) -> usize {
+        self.closed_trades.len()
+    }
+
+    pub fn winning_trade_count(&self) -> usize {
+        self.closed_trades
+            .iter()
+            .filter(|trade| trade.pnl > 0.0)
+            .count()
+    }
+
+    pub fn losing_trade_count(&self) -> usize {
+        self.closed_trades
+            .iter()
+            .filter(|trade| trade.pnl < 0.0)
+            .count()
+    }
+
+    pub fn display_summary(&self) {
+        println!(
+            "PAPER_SUMMARY trades={} wins={} losses={} realised_pnl={:.4} open_position={}",
+            self.closed_trade_count(),
+            self.winning_trade_count(),
+            self.losing_trade_count(),
+            self.realised_pnl,
+            self.has_open_position()
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -269,5 +298,24 @@ mod tests {
 
         const TOLERANCE: f64 = 1e-9;
         assert!((trader.realised_pnl - closed_trade.pnl).abs() < TOLERANCE);
+    }
+
+    #[test]
+    fn tracks_winning_and_losing_trade_counts() {
+        let mut trader = PaperTrader::new(10.0);
+
+        trader.open_long("token-1", 0.50, "PriceMoveUp");
+        trader
+            .maybe_close_position(0.55, 0.05, 0.05)
+            .expect("expected winning trade to close");
+
+        trader.open_long("token-1", 0.50, "PriceMoveUp");
+        trader
+            .maybe_close_position(0.45, 0.05, 0.05)
+            .expect("expected losing trade to close");
+
+        assert_eq!(trader.closed_trade_count(), 2);
+        assert_eq!(trader.winning_trade_count(), 1);
+        assert_eq!(trader.losing_trade_count(), 1);
     }
 }

@@ -132,6 +132,10 @@ pub async fn stream_token(
                     if metrics.should_report(10) {
                         metrics.display_summary();
                         signal_metrics.display_summary();
+
+                        if paper_trading_config.enabled {
+                            paper_trader.display_summary();
+                        }
                     }
 
                     println!();
