@@ -95,6 +95,14 @@ enum Commands {
         /// Stake size used for simulated paper trades
         #[arg(long, default_value_t = 10.0)]
         paper_stake: f64,
+
+        /// Paper-trading take-profit threshold as a decimal, e.g. 0.05 = 5%
+        #[arg(long, default_value_t = 0.05)]
+        take_profit: f64,
+
+        /// Paper-trading stop-loss threshold as a decimal, e.g. 0.03 = 3%
+        #[arg(long, default_value_t = 0.03)]
+        stop_loss: f64,
     },
 }
 
@@ -175,6 +183,8 @@ async fn main() -> Result<()> {
             show_events,
             paper_trade,
             paper_stake,
+            take_profit,
+            stop_loss,
         } => {
             let signal_config = SignalConfig {
                 tight_spread_threshold,
@@ -191,6 +201,8 @@ async fn main() -> Result<()> {
             let paper_trading_config = PaperTradingConfig {
                 enabled: paper_trade,
                 stake: paper_stake,
+                take_profit,
+                stop_loss,
             };
 
             stream_token(

@@ -6,7 +6,7 @@ use std::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::polymarket::metrics::{LatencyMetrics, SignalMetrics};
-use crate::polymarket::paper_trader::PaperTrader;
+use crate::polymarket::paper_trader::{PaperExitReason, PaperTrader};
 use crate::polymarket::signal_logger::SignalLogger;
 use crate::polymarket::signals::{
     MarketSignal, SignalConfig, SignalOutputMode, display_signal, evaluate_signals,
@@ -28,6 +28,8 @@ pub struct StreamOutputConfig {
 pub struct PaperTradingConfig {
     pub enabled: bool,
     pub stake: f64,
+    pub take_profit: f64,
+    pub stop_loss: f64,
 }
 
 pub async fn stream_token(
@@ -51,8 +53,11 @@ pub async fn stream_token(
         output_config.show_state, output_config.show_events
     );
     println!(
-        "Paper trading: enabled={} stake={}",
-        paper_trading_config.enabled, paper_trading_config.stake
+        "Paper trading: enabled={} stake={} take_profit={} stop_loss={}",
+        paper_trading_config.enabled,
+        paper_trading_config.stake,
+        paper_trading_config.take_profit,
+        paper_trading_config.stop_loss
     );
     tracing::info!(token_id, "Connecting to Polymarket market WebSocket");
 
@@ -112,6 +117,10 @@ pub async fn stream_token(
                         if let Some(logger) = signal_logger.as_mut() {
                             logger.log(&signal)?;
                         }
+                    }
+
+                    if paper_trading_config.enabled {
+                        maybe_close_paper_position(&mut paper_trader, &state, paper_trading_config);
                     }
 
                     let processing_latency = started_at.elapsed();
@@ -367,6 +376,39 @@ fn maybe_open_paper_position(
             paper_trader.stake
         );
     }
+}
+
+fn maybe_close_paper_position(
+    paper_trader: &mut PaperTrader,
+    state: &TokenMarketState,
+    paper_trading_config: PaperTradingConfig,
+) {
+    let Some(exit_price) = state.best_bid.as_deref().and_then(parse_price) else {
+        return;
+    };
+
+    let Some(closed_trade) = paper_trader.maybe_close_position(
+        exit_price,
+        paper_trading_config.take_profit,
+        paper_trading_config.stop_loss,
+    ) else {
+        return;
+    };
+
+    let exit_reason = match closed_trade.exit_reason {
+        PaperExitReason::TakeProfit => "TakeProfit",
+        PaperExitReason::StopLoss => "StopLoss",
+    };
+
+    println!(
+        "PAPER_TRADE Closed side=LONG token={} entry={} exit={} stake={} pnl={:.4} reason={}",
+        shorten_token_id(&closed_trade.token_id),
+        closed_trade.entry_price,
+        closed_trade.exit_price,
+        closed_trade.stake,
+        closed_trade.pnl,
+        exit_reason
+    );
 }
 
 fn state_has_tight_spread(state: &TokenMarketState, threshold: f64) -> bool {

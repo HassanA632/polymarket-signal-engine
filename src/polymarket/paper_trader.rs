@@ -4,6 +4,12 @@ pub enum PaperPositionSide {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum PaperExitReason {
+    TakeProfit,
+    StopLoss,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PaperPosition {
     pub token_id: String,
     pub side: PaperPositionSide,
@@ -44,6 +50,8 @@ impl PaperPosition {
 pub struct PaperTrader {
     pub stake: f64,
     pub open_position: Option<PaperPosition>,
+    pub closed_trades: Vec<ClosedPaperTrade>,
+    pub realised_pnl: f64,
 }
 
 impl PaperTrader {
@@ -51,6 +59,8 @@ impl PaperTrader {
         Self {
             stake,
             open_position: None,
+            closed_trades: Vec::new(),
+            realised_pnl: 0.0,
         }
     }
 
@@ -79,6 +89,58 @@ impl PaperTrader {
 
         true
     }
+
+    pub fn maybe_close_position(
+        &mut self,
+        current_price: f64,
+        take_profit: f64,
+        stop_loss: f64,
+    ) -> Option<ClosedPaperTrade> {
+        let position = self.open_position.as_ref()?;
+
+        if !position.is_open {
+            return None;
+        }
+
+        let pnl_pct = (current_price - position.entry_price) / position.entry_price;
+
+        let exit_reason = if pnl_pct >= take_profit {
+            PaperExitReason::TakeProfit
+        } else if pnl_pct <= -stop_loss {
+            PaperExitReason::StopLoss
+        } else {
+            return None;
+        };
+
+        let pnl = position.unrealised_pnl(current_price);
+
+        let closed_trade = ClosedPaperTrade {
+            token_id: position.token_id.clone(),
+            side: position.side.clone(),
+            entry_price: position.entry_price,
+            exit_price: current_price,
+            stake: position.stake,
+            pnl,
+            exit_reason,
+        };
+
+        self.realised_pnl += pnl;
+        self.closed_trades.push(closed_trade.clone());
+        self.open_position = None;
+
+        Some(closed_trade)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClosedPaperTrade {
+    pub token_id: String,
+    pub side: PaperPositionSide,
+    pub entry_price: f64,
+    pub exit_price: f64,
+    pub stake: f64,
+    pub pnl: f64,
+    pub exit_reason: PaperExitReason,
 }
 
 #[cfg(test)]
@@ -147,5 +209,65 @@ mod tests {
         let position = trader.open_position.unwrap();
 
         assert_eq!(position.entry_price, 0.50);
+    }
+
+    #[test]
+    fn closes_position_when_take_profit_is_hit() {
+        let mut trader = PaperTrader::new(10.0);
+
+        trader.open_long("token-1", 0.50, "PriceMoveUp");
+
+        let closed_trade = trader
+            .maybe_close_position(0.55, 0.10, 0.05)
+            .expect("expected trade to close");
+
+        assert_eq!(closed_trade.exit_reason, PaperExitReason::TakeProfit);
+        assert_eq!(closed_trade.exit_price, 0.55);
+        assert!(closed_trade.pnl > 0.0);
+        assert!(!trader.has_open_position());
+        assert_eq!(trader.closed_trades.len(), 1);
+    }
+
+    #[test]
+    fn closes_position_when_stop_loss_is_hit() {
+        let mut trader = PaperTrader::new(10.0);
+
+        trader.open_long("token-1", 0.50, "PriceMoveUp");
+
+        let closed_trade = trader
+            .maybe_close_position(0.475, 0.10, 0.05)
+            .expect("expected trade to close");
+
+        assert_eq!(closed_trade.exit_reason, PaperExitReason::StopLoss);
+        assert_eq!(closed_trade.exit_price, 0.475);
+        assert!(closed_trade.pnl < 0.0);
+        assert!(!trader.has_open_position());
+        assert_eq!(trader.closed_trades.len(), 1);
+    }
+
+    #[test]
+    fn does_not_close_position_when_thresholds_are_not_hit() {
+        let mut trader = PaperTrader::new(10.0);
+
+        trader.open_long("token-1", 0.50, "PriceMoveUp");
+
+        let closed_trade = trader.maybe_close_position(0.51, 0.10, 0.05);
+
+        assert!(closed_trade.is_none());
+        assert!(trader.has_open_position());
+        assert_eq!(trader.closed_trades.len(), 0);
+    }
+
+    #[test]
+    fn tracks_realised_pnl_after_close() {
+        let mut trader = PaperTrader::new(10.0);
+
+        trader.open_long("token-1", 0.50, "PriceMoveUp");
+        let closed_trade = trader
+            .maybe_close_position(0.55, 0.10, 0.05)
+            .expect("expected trade to close");
+
+        const TOLERANCE: f64 = 1e-9;
+        assert!((trader.realised_pnl - closed_trade.pnl).abs() < TOLERANCE);
     }
 }
