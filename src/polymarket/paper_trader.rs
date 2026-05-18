@@ -1,9 +1,11 @@
-#[derive(Debug, Clone, PartialEq)]
+use serde::Serialize;
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum PaperPositionSide {
     Long,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum PaperExitReason {
     TakeProfit,
     StopLoss,
@@ -161,7 +163,7 @@ impl PaperTrader {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ClosedPaperTrade {
     pub token_id: String,
     pub side: PaperPositionSide,

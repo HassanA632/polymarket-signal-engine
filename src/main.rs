@@ -103,6 +103,10 @@ enum Commands {
         /// Paper-trading stop-loss threshold as a decimal, e.g. 0.03 = 3%
         #[arg(long, default_value_t = 0.03)]
         stop_loss: f64,
+
+        /// Optional path to write closed paper trades as JSONL
+        #[arg(long)]
+        log_paper_trades: Option<PathBuf>,
     },
 }
 
@@ -185,6 +189,7 @@ async fn main() -> Result<()> {
             paper_stake,
             take_profit,
             stop_loss,
+            log_paper_trades,
         } => {
             let signal_config = SignalConfig {
                 tight_spread_threshold,
@@ -212,6 +217,7 @@ async fn main() -> Result<()> {
                 log_signals,
                 output_config,
                 paper_trading_config,
+                log_paper_trades,
             )
             .await?;
         }

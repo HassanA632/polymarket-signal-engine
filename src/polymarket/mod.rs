@@ -2,6 +2,7 @@ pub mod client;
 pub mod display;
 pub mod filter;
 pub mod metrics;
+pub mod paper_trade_logger;
 pub mod paper_trader;
 pub mod signal_logger;
 pub mod signals;
