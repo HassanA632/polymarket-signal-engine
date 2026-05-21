@@ -1,4 +1,5 @@
 pub mod client;
+pub mod config;
 pub mod display;
 pub mod filter;
 pub mod metrics;

@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 use crate::polymarket::client::PolymarketClient;
+use crate::polymarket::config::load_stream_config;
 use crate::polymarket::display::{
     display_events, display_market_inspection_by_market_id, display_market_inspection_by_token_id,
 };
@@ -56,53 +57,57 @@ enum Commands {
         #[arg(long)]
         token_id: String,
 
+        /// Optional TOML config file for stream settings
+        #[arg(long)]
+        config: Option<PathBuf>,
+
         /// Maximum spread allowed for a TightSpread signal
-        #[arg(long, default_value_t = 0.01)]
-        tight_spread_threshold: f64,
+        #[arg(long)]
+        tight_spread_threshold: Option<f64>,
 
         /// Minimum spread reduction required for a SpreadTightened signal
-        #[arg(long, default_value_t = 0.01)]
-        min_spread_tightening: f64,
+        #[arg(long)]
+        min_spread_tightening: Option<f64>,
 
         /// Minimum best-bid movement required for a price movement signal
-        #[arg(long, default_value_t = 0.02)]
-        min_price_move: f64,
+        #[arg(long)]
+        min_price_move: Option<f64>,
 
         /// Minimum trade size required for a LargeTrade signal
-        #[arg(long, default_value_t = 500.0)]
-        large_trade_threshold: f64,
+        #[arg(long)]
+        large_trade_threshold: Option<f64>,
 
         /// Signal output format
-        #[arg(long, value_enum, default_value_t = OutputMode::Text)]
-        output: OutputMode,
+        #[arg(long, value_enum)]
+        output: Option<OutputMode>,
 
         /// Optional path to write emitted signals as JSONL
         #[arg(long)]
         log_signals: Option<PathBuf>,
 
         /// Show live token state summaries
-        #[arg(long, default_value_t = false)]
-        show_state: bool,
+        #[arg(long)]
+        show_state: Option<bool>,
 
         /// Show parsed WebSocket event summaries
-        #[arg(long, default_value_t = false)]
-        show_events: bool,
+        #[arg(long)]
+        show_events: Option<bool>,
 
         /// Enable experimental paper trading mode
-        #[arg(long, default_value_t = false)]
-        paper_trade: bool,
+        #[arg(long)]
+        paper_trade: Option<bool>,
 
         /// Stake size used for simulated paper trades
-        #[arg(long, default_value_t = 10.0)]
-        paper_stake: f64,
+        #[arg(long)]
+        paper_stake: Option<f64>,
 
         /// Paper-trading take-profit threshold as a decimal, e.g. 0.05 = 5%
-        #[arg(long, default_value_t = 0.05)]
-        take_profit: f64,
+        #[arg(long)]
+        take_profit: Option<f64>,
 
         /// Paper-trading stop-loss threshold as a decimal, e.g. 0.03 = 3%
-        #[arg(long, default_value_t = 0.03)]
-        stop_loss: f64,
+        #[arg(long)]
+        stop_loss: Option<f64>,
 
         /// Optional path to write closed paper trades as JSONL
         #[arg(long)]
@@ -177,6 +182,7 @@ async fn main() -> Result<()> {
         }
         Commands::Stream {
             token_id,
+            config,
             tight_spread_threshold,
             min_spread_tightening,
             min_price_move,
@@ -191,33 +197,104 @@ async fn main() -> Result<()> {
             stop_loss,
             log_paper_trades,
         } => {
-            let signal_config = SignalConfig {
-                tight_spread_threshold,
-                min_spread_tightening,
-                min_price_move,
-                large_trade_threshold,
+            let file_config = match config {
+                Some(path) => Some(load_stream_config(path)?),
+                None => None,
             };
+
+            let signal_file_config = file_config
+                .as_ref()
+                .and_then(|config| config.signals.as_ref());
+            let output_file_config = file_config
+                .as_ref()
+                .and_then(|config| config.output.as_ref());
+            let paper_file_config = file_config
+                .as_ref()
+                .and_then(|config| config.paper_trading.as_ref());
+
+            let signal_config = SignalConfig {
+                tight_spread_threshold: tight_spread_threshold
+                    .or_else(|| signal_file_config.and_then(|config| config.tight_spread_threshold))
+                    .unwrap_or_else(|| SignalConfig::default().tight_spread_threshold),
+
+                min_spread_tightening: min_spread_tightening
+                    .or_else(|| signal_file_config.and_then(|config| config.min_spread_tightening))
+                    .unwrap_or_else(|| SignalConfig::default().min_spread_tightening),
+
+                min_price_move: min_price_move
+                    .or_else(|| signal_file_config.and_then(|config| config.min_price_move))
+                    .unwrap_or_else(|| SignalConfig::default().min_price_move),
+
+                large_trade_threshold: large_trade_threshold
+                    .or_else(|| signal_file_config.and_then(|config| config.large_trade_threshold))
+                    .unwrap_or_else(|| SignalConfig::default().large_trade_threshold),
+            };
+
+            fn parse_output_mode(value: &str) -> Option<SignalOutputMode> {
+                match value.to_lowercase().as_str() {
+                    "text" => Some(SignalOutputMode::Text),
+                    "json" => Some(SignalOutputMode::Json),
+                    _ => None,
+                }
+            }
+
+            let output_mode = output
+                .map(SignalOutputMode::from)
+                .or_else(|| {
+                    output_file_config
+                        .and_then(|config| config.mode.as_deref())
+                        .and_then(parse_output_mode)
+                })
+                .unwrap_or(SignalOutputMode::Text);
 
             let output_config = StreamOutputConfig {
-                show_state,
-                show_events,
+                show_state: show_state
+                    .or_else(|| output_file_config.and_then(|config| config.show_state))
+                    .unwrap_or(false),
+
+                show_events: show_events
+                    .or_else(|| output_file_config.and_then(|config| config.show_events))
+                    .unwrap_or(false),
             };
 
+            let signal_log_path = log_signals.or_else(|| {
+                output_file_config
+                    .and_then(|config| config.log_signals.as_ref())
+                    .cloned()
+            });
+
             let paper_trading_config = PaperTradingConfig {
-                enabled: paper_trade,
-                stake: paper_stake,
-                take_profit,
-                stop_loss,
+                enabled: paper_trade
+                    .or_else(|| paper_file_config.and_then(|config| config.enabled))
+                    .unwrap_or(false),
+
+                stake: paper_stake
+                    .or_else(|| paper_file_config.and_then(|config| config.stake))
+                    .unwrap_or(10.0),
+
+                take_profit: take_profit
+                    .or_else(|| paper_file_config.and_then(|config| config.take_profit))
+                    .unwrap_or(0.05),
+
+                stop_loss: stop_loss
+                    .or_else(|| paper_file_config.and_then(|config| config.stop_loss))
+                    .unwrap_or(0.03),
             };
+
+            let paper_trade_log_path = log_paper_trades.or_else(|| {
+                paper_file_config
+                    .and_then(|config| config.log_paper_trades.as_ref())
+                    .cloned()
+            });
 
             stream_token(
                 &token_id,
                 signal_config,
-                output.into(),
-                log_signals,
+                output_mode,
+                signal_log_path,
                 output_config,
                 paper_trading_config,
-                log_paper_trades,
+                paper_trade_log_path,
             )
             .await?;
         }
