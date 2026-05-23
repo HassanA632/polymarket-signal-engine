@@ -89,14 +89,15 @@ Implemented:
 
 ### Paper Trading
 
-- Add experimental paper-trading mode
-- Open simulated positions from selected signal conditions
-- Track simulated entry price, position state, and strategy reason
-- Add configurable stake size
-- Add simple take-profit and stop-loss exits
-- Track realised and unrealised paper PnL
-- Print paper-trading session summaries
-- Optionally log paper trades as JSONL
+- Supports experimental paper-trading mode
+- Opens simulated long positions from selected signal conditions
+- Uses best ask as the simulated entry price
+- Uses best bid as the simulated exit price
+- Supports configurable stake size
+- Supports configurable take-profit and stop-loss thresholds
+- Tracks realised paper-trading PnL
+- Prints periodic paper-trading session summaries
+- Supports optional JSONL logging for closed paper trades
 
 ## Architecture Direction
 
@@ -228,6 +229,12 @@ cargo run -- stream --token-id <CLOB_TOKEN_ID> \
   --min-spread-tightening 0.005 \
   --min-price-move 0.01 \
   --large-trade-threshold 250
+```
+
+Run the stream command with a TOML config file:
+
+```bash
+cargo run -- stream --token-id <CLOB_TOKEN_ID> --config config/stream.example.toml
 ```
 
 ## Development Principles
